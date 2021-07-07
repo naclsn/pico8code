@@ -1,14 +1,14 @@
 {
-	"name": "lsp-sample",
-	"description": "A language server example",
-	"author": "Microsoft Corporation",
+	"name": "pico8-please",
+	"description": "nothing to see here yet, come back later",
+	"author": "me",
 	"license": "MIT",
-	"version": "1.0.0",
+	"version": "0.0.1",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/Microsoft/vscode-extension-samples"
+		"url": "https://github.com/will_do_later"
 	},
-	"publisher": "vscode-samples",
+	"publisher": "idk",
 	"categories": [],
 	"keywords": [
 		"multi-root ready"
@@ -51,12 +51,10 @@
 		"test": "echo '(sad no test...)'"
 	},
 	"devDependencies": {
-		"@types/mocha": "^8.2.2",
 		"@types/node": "^12.12.0",
 		"@typescript-eslint/eslint-plugin": "^4.23.0",
 		"@typescript-eslint/parser": "^4.23.0",
 		"eslint": "^7.26.0",
-		"mocha": "^8.3.2",
 		"typescript": "^4.3.2"
 	}
 }
