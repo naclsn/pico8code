@@ -1,11 +1,18 @@
-# An Other PICO-8 Extension
+# An Other PICO-8 VSCode Extension
 
 
 ## Functionality
 
-The Language Server works for PICO-8 source (.p8, text) files and provides the following language features:
-- Completions
-- Diagnostics
+This extension aims at providing the following language features:
+
+ - [ ] diagnostics
+ - [ ] completions
+ - [ ] docstring
+ - [ ] API lookup (from [wiki](https://pico-8.fandom.com))
+ - [ ] typing
+ - [ ] custom "require"-like statements (multi-file project)
+
+The Language Server activates for PICO-8 sources (.p8, text).
 
 ## Structure
 

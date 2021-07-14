@@ -81,32 +81,6 @@
 					]
 				},
 				{
-					"begin": "(?<=\\.cdef)\\s*(\\[(=*)\\[)",
-					"beginCaptures": {
-						"0": {
-							"name": "string.quoted.other.multiline.lua"
-						},
-						"1": {
-							"name": "punctuation.definition.string.begin.lua"
-						}
-					},
-					"contentName": "meta.embedded.lua",
-					"end": "(\\]\\2\\])",
-					"endCaptures": {
-						"0": {
-							"name": "string.quoted.other.multiline.lua"
-						},
-						"1": {
-							"name": "punctuation.definition.string.end.lua"
-						}
-					},
-					"patterns": [
-						{
-							"include": "source.c"
-						}
-					]
-				},
-				{
 					"begin": "(?<!--)\\[(=*)\\[",
 					"beginCaptures": {
 						"0": {
@@ -153,6 +127,27 @@
 					]
 				},
 				{
+					"begin": "(^[ \\t]+)?(?=//)",
+					"beginCaptures": {
+						"1": {
+							"name": "punctuation.whitespace.comment.leading.lua"
+						}
+					},
+					"end": "(?!\\G)",
+					"patterns": [
+						{
+							"begin": "//",
+							"beginCaptures": {
+								"0": {
+									"name": "punctuation.definition.comment.lua"
+								}
+							},
+							"end": "\\n",
+							"name": "comment.line.double-slash.lua"
+						}
+					]
+				},
+				{
 					"match": "\\b(break|do|else|for|if|elseif|return|then|repeat|while|until|end|function|local|in)\\b",
 					"name": "keyword.control.lua"
 				},
@@ -165,7 +160,7 @@
 					"name": "variable.language.self.lua"
 				},
 				{
-					"match": "(?<![^.]\\.|:)\\b(_draw|_init|_update|_update60|abs|add|all|assert|atan2|band|bnot|bor|btn|btnp|bxor|camera|cartdata|cd|circ|circfill|clip|cls|cocreate|color|coresume|cos|costatus|count|cstore|cursor|del|dget|dir|dset|exit|export|fget|flip|flr|folder|foreach|fset|help|holdframe|import|info|install_demos|install_games|keyconfig|line|load|ls|map|mapdraw|max|memcpy|memset|menuitem|mget|mid|min|mkdir|mset|music|pairs|pal|palt|peek|pget|poke|print|printh|pset|reboot|rect|rectfill|reload|resume|rnd|run|save|setmetatable|sfx|sget|sgn|shl|shr|shutdown|sin|splore|spr|sqrt|srand|sset|sspr|stat|sub|time|type|unpack|yield)\\b(?=\\s*(?:[({\"']|\\[\\[))",
+					"match": "(?<![^.]\\.|:)\\b(_ENV|_draw|_init|_update|_update60|abs|add|all|assert|atan2|band|bnot|bor|btn|btnp|bxor|camera|cartdata|cd|ceil|chr|circ|circfill|clip|cls|cocreate|color|coresume|cos|costatus|count|cstore|cursor|del|deli|dget|dir|dset|exit|export|extcmd|fget|fillp|flip|flr|folder|foreach|fset|getmetatable|help|holdframe|import|info|install_demos|install_games|keyconfig|line|load|ls|map|mapdraw|max|memcpy|memset|menuitem|mget|mid|min|mkdir|mset|music|ord|oval|ovalfill|pack|pairs|pal|palt|peek|pget|poke|print|printh|pset|rawequal|rawget|rawlen|rawset|reboot|rect|rectfill|reload|resume|rnd|run|save|select|setmetatable|sfx|sget|sgn|shl|shr|shutdown|sin|split|splore|spr|sqrt|srand|sset|sspr|stat|stop|sub|time|tonum|tostr|trace|type|unpack|yield)\\b(?=\\s*(?:[({\"']|\\[\\[))",
 					"name": "support.class.lua"
 				},
 				{
@@ -181,11 +176,11 @@
 					"name": "variable.other.lua"
 				},
 				{
-					"match": "[<>!~]=?|==",
+					"match": "[<>](?![<>])=?|[!~=]=",
 					"name": "keyword.operator.comparison.lua"
 				},
 				{
-					"match": "[+\\-%*\\/\\\\^&|!~]=?|(?<!\\.)\\.{2}(?!\\.)=?|[#@%$=]",
+					"match": "(?:\\^\\^|[+\\-%*\\/\\\\^&]|(?<!\\.)\\.{2}(?!\\.)|<{2}>?|>>>|>{2}<?)=?|[#@%$=]",
 					"name": "keyword.operator.lua"
 				}
 			]
