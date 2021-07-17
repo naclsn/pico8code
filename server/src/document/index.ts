@@ -2,6 +2,7 @@ import {  parse, Options as ParseOptions, SyntaxError as ParseError } from 'pico
 import { Connection, Hover } from 'vscode-languageserver';
 import { Position, Range, TextDocument } from 'vscode-languageserver-textdocument';
 import { SelfExplore } from './explore';
+import { represent } from './typing';
 
 const parseOptions: Partial<ParseOptions> = {
 	luaVersion: 'PICO-8-0.2.1',
@@ -46,7 +47,7 @@ export class Pico8Document extends SelfExplore {
 			contents: {
 				kind: 'markdown',
 				value: [
-					found.name + ": " + found.type,
+					found.name + ": " + represent(found.type),
 					"```json", // prevents circular errors @thx https://stackoverflow.com/a/46908358/13196480
 					JSON.stringify(found.info, (k, v) => k && v && typeof v !== "number" ? (Array.isArray(v) ? "[object Array]" : "" + v) : v, 2),
 					"```",

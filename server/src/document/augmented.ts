@@ -33,7 +33,9 @@ export namespace aug {
 
 	export interface AssignmentOperatorStatement extends ast.AssignmentOperatorStatement { }
 
-	export interface CallStatement extends ast.CallStatement { }
+	export interface CallStatement extends ast.CallStatement {
+		augValues?: Valued[];
+	}
 
 	export interface FunctionDeclaration extends ast.FunctionDeclaration {
 		augReturns?: ReturnStatement[];
@@ -88,11 +90,17 @@ export namespace aug {
 
 	export interface IndexExpression extends ast.IndexExpression { }
 
-	export interface CallExpression extends ast.CallExpression { }
+	export interface CallExpression extends ast.CallExpression {
+		augValues?: Valued[];
+	}
 
-	export interface TableCallExpression extends ast.TableCallExpression { }
+	export interface TableCallExpression extends ast.TableCallExpression {
+		augValues?: Valued[];
+	}
 
-	export interface StringCallExpression extends ast.StringCallExpression { }
+	export interface StringCallExpression extends ast.StringCallExpression {
+		augValues?: Valued[];
+	}
 
 	export interface Comment extends ast.Comment { }
 

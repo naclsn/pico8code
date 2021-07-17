@@ -2,6 +2,7 @@ import { ast } from 'pico8parse';
 import { Range } from 'vscode-languageserver-textdocument';
 import { Diagnostic, DiagnosticSeverity, DocumentSymbol } from 'vscode-languageserver';
 import { aug } from './augmented';
+import { LuaType, resolve } from './typing';
 
 export type RangeLUT = { [name: string]: {
 	range: Range,
@@ -9,15 +10,6 @@ export type RangeLUT = { [name: string]: {
 	type: LuaType,
 	info: any,
 } }
-
-type LuaType
-	= 'any'
-	| 'nil'
-	| 'number'
-	| 'string'
-	| 'boolean'
-	| 'table'
-	| 'function'
 
 type LuaVariable = { node: aug.Node }
 type Scope = {
@@ -38,85 +30,6 @@ function locToRange(loc: Loc): Range {
 			character: end.column,
 		},
 	};
-}
-
-function resolveType(node: aug.Node): LuaType {
-	switch (node.type) {
-		case 'Identifier': {
-			if (node.augValue)
-				return resolveType(node.augValue);
-			else return 'nil';
-		}
-
-		case 'NilLiteral': return 'nil';
-		case 'NumericLiteral': return 'number';
-		case 'StringLiteral': return 'string';
-		case 'BooleanLiteral': return 'boolean';
-
-		case 'TableConstructorExpression': return 'table';
-
-		case 'FunctionDeclaration': {
-			const parameters = node.parameters;
-			const returns = node.augReturns ?? [];
-			return `function (${parameters.map(it => (it as any).name || "...").join(", ")}) => (${returns.map(resolveType).join(" | ") || "nil"})` as any;
-		}
-		case 'ReturnStatement': {
-			return "[" + node.arguments.map(resolveType).join(", ") + "]" as any;
-		}
-
-		case 'BinaryExpression': {
-			switch (node.operator) {
-				case '+':
-				case '-':
-				case '*':
-				case '/':
-				case '^':
-				case '\\':
-				case '&':
-				case '|':
-				case '^^':
-					return 'number';
-				case '==':
-				case '<':
-				case '>':
-				case '<=':
-				case '>=':
-				case '!=':
-				case '~=':
-					return 'boolean';
-			}
-			break;
-		}
-		case 'UnaryExpression': {
-			switch (node.operator) {
-				case '#':
-				case '~':
-				case '@':
-				case '%':
-				case '$':
-				case '-':
-					return 'number';
-				case 'not':
-					return 'boolean';
-			}
-			break;
-		}
-		case 'LogicalExpression': {
-			const tya = resolveType(node.left);
-			const tyb = resolveType(node.right);
-			if ('and' === node.operator) {
-				return 'nil' === tya ? 'nil'
-					: 'boolean' === tya ? tyb + " | true" as LuaType
-					: tyb;
-			} else if ('or' === node.operator) {
-				return 'nil' === tya ? tyb
-					: 'boolean' === tya ? tyb + " | false" as LuaType
-					: tya;
-			}
-			break;
-		}
-	}
-	return ""+node as any;
 }
 
 type TTypes = ast.Node['type'];
@@ -152,7 +65,7 @@ export class SelfExplore {
 		this.ranges[`:${range.start.line}:${range.start.character}`] = {
 			range,
 			name,
-			type: val ? resolveType(val) : 'nil',
+			type: val ? resolve(val) : 'nil',
 			info: val
 		};
 		return range;
@@ -293,7 +206,7 @@ export class SelfExplore {
 				}
 			},
 
-			BreakStatement: _node => { void 1 ; },
+			BreakStatement: (node) => { void 1; },
 
 			GotoStatement: ({ label, loc }) => {
 				if (!Object.prototype.hasOwnProperty.call(this.currentScope.labels, label.name))
@@ -309,7 +222,7 @@ export class SelfExplore {
 				}
 			},
 
-			ReturnStatement: node => {
+			ReturnStatement: (node) => {
 				const fun = this.contextFind('FunctionDeclaration');
 				if (!fun) {
 					this.error("no function to return from", locToRange(node.loc));
@@ -320,24 +233,45 @@ export class SelfExplore {
 				fun.augReturns.push(node);
 			},
 
-			IfStatement: (node) => { void 1; },
+			IfStatement: (node) => {
+				this.contextPush(node);
+					node.clauses.forEach(it => this.handlers[it.type](it as any));
+				this.contextPop('IfStatement');
+			},
 
-			WhileStatement: (node) => { void 1 ; },
+			WhileStatement: (node) => {
+				this.contextPush(node);
+					this.handlers[node.condition.type](node.condition as any);
+
+					const previousScope = this.fork();
+						node.body.forEach(it => this.handlers[it.type](it as any));
+					this.restore(previousScope);
+				this.contextPop('WhileStatement');
+			},
 
 			DoStatement: (node) => {
 				this.contextPush(node);
-				const previousScope = this.fork();
-				node.body.forEach(it => this.handlers[it.type](it as any));
-				this.restore(previousScope);
+					const previousScope = this.fork();
+						node.body.forEach(it => this.handlers[it.type](it as any));
+					this.restore(previousScope);
 				this.contextPop('DoStatement');
 			},
 
-			RepeatStatement: (node) => { void 1 ; },
+			RepeatStatement: (node) => {
+				this.contextPush(node);
+					const previousScope = this.fork();
+						node.body.forEach(it => this.handlers[it.type](it as any));
+					this.restore(previousScope);
+
+					this.handlers[node.condition.type](node.condition as any);
+				this.contextPop('RepeatStatement');
+			},
 
 			LocalStatement: (node) => {
 				this.handlers[node.init[0].type](node.init[0] as any);
 				const augmented = (node.variables[0] as aug.Identifier);
 				augmented.augValue = node.init[0] as any;
+
 				this.handlers.Identifier(augmented);
 			},
 
@@ -345,24 +279,78 @@ export class SelfExplore {
 				this.handlers[node.init[0].type](node.init[0] as any);
 				const augmented = (node.variables[0] as aug.Identifier);
 				augmented.augValue = node.init[0] as any;
+
+				const previousScope = this.currentScope;
+				this.currentScope = this.globalScope;
+					this.handlers.Identifier(augmented);
+				this.currentScope = previousScope;
+			},
+
+			AssignmentOperatorStatement: (node) => {
+				this.handlers[node.init[0].type](node.init[0] as any);
+				const augmented = (node.variables[0] as aug.Identifier);
+				augmented.augValue = node.init[0] as any;
+
 				this.handlers.Identifier(augmented);
 			},
 
-			AssignmentOperatorStatement: (node) => { void 1 ; },
+			CallStatement: (node) => {
+				this.contextPush(node);
+					this.handlers[node.expression.type](node.expression as any);
+				this.contextPop('CallStatement');
+			},
 
-			CallStatement: (node) => { void 1 ; },
+			ForNumericStatement: (node) => {
+				this.contextPush(node);
+					const previousScope = this.fork();
+						this.handlers.Identifier(node.variable);
+						[node.start, node.end, node.step].map(it => it && this.handlers[it.type](it as any));
 
-			ForNumericStatement: (node) => { void 1 ; },
+						node.body.forEach(it => this.handlers[it.type](it as any));
+					this.restore(previousScope);
+				this.contextPop('WhileStatement');
+			},
 
-			ForGenericStatement: (node) => { void 1 ; },
+			ForGenericStatement: (node) => {
+				this.contextPush(node);
+					const previousScope = this.fork();
+						node.variables.map(it => this.handlers[it.type](it as any));
+						node.iterators.map(it => this.handlers[it.type](it as any)); // XXX
+
+						node.body.forEach(it => this.handlers[it.type](it as any));
+					this.restore(previousScope);
+				this.contextPop('WhileStatement');
+			},
 		//#endregion
 
 		//#region clauses
-			IfClause: (node) => { void 1; },
+			IfClause: (node) => {
+				this.contextPush(node);
+					this.handlers[node.condition.type](node.condition as any);
 
-			ElseifClause: (node) => { void 1; },
+					const previousScope = this.fork();
+						node.body.forEach(it => this.handlers[it.type](it as any));
+					this.restore(previousScope);
+				this.contextPop('IfClause');
+			},
 
-			ElseClause: (node) => { void 1; },
+			ElseifClause: (node) => {
+				this.contextPush(node);
+					this.handlers[node.condition.type](node.condition as any);
+
+					const previousScope = this.fork();
+						node.body.forEach(it => this.handlers[it.type](it as any));
+					this.restore(previousScope);
+				this.contextPop('ElseifClause');
+			},
+
+			ElseClause: (node) => {
+				this.contextPush(node);
+					const previousScope = this.fork();
+						node.body.forEach(it => this.handlers[it.type](it as any));
+					this.restore(previousScope);
+				this.contextPop('ElseClause');
+			},
 		//#endregion
 
 		//#region table
@@ -376,21 +364,51 @@ export class SelfExplore {
 		//#region expressions
 			TableConstructorExpression: (node) => { void 1; },
 
-			BinaryExpression: (node) => { void 1; },
+			BinaryExpression: (node) => {
+				[node.left, node.right].map(it => this.handlers[it.type](it as any));
+			},
 
-			LogicalExpression: (node) => { void 1; },
+			LogicalExpression: (node) => {
+				[node.left, node.right].map(it => this.handlers[it.type](it as any));
+			},
 
-			UnaryExpression: (node) => { void 1; },
+			UnaryExpression: (node) => {
+				this.handlers[node.argument.type](node.argument as any);
+			},
 
-			MemberExpression: (node) => { void 1; },
+			MemberExpression: (node) => { void 1; }, // TODO
 
-			IndexExpression: (node) => { void 1; },
+			IndexExpression: (node) => { void 1; }, // TODO
 
-			CallExpression: (node) => { void 1; },
+			CallExpression: (node) => {
+				this.contextPush(node);
+					const augmented = (node.base as aug.Identifier);
+					this.handlers.Identifier(augmented);
+					(node as aug.CallExpression).augValues = [augmented.augValue!];
 
-			TableCallExpression: (node) => { void 1; },
+					node.arguments.forEach(it => this.handlers[it.type](it as any));
+				this.contextPop('CallExpression');
+			},
 
-			StringCallExpression: (node) => { void 1; },
+			TableCallExpression: (node) => {
+				this.contextPush(node);
+					const augmented = (node.base as aug.Identifier);
+					this.handlers.Identifier(augmented);
+					(node as aug.TableCallExpression).augValues = [augmented.augValue!];
+
+					this.handlers[node.argument.type](node.argument as any);
+				this.contextPop('TableCallExpression');
+			},
+
+			StringCallExpression: (node) => {
+				this.contextPush(node);
+					const augmented = (node.base as aug.Identifier);
+					this.handlers.Identifier(augmented);
+					(node as aug.StringCallExpression).augValues = [augmented.augValue!];
+
+					this.handlers[node.argument.type](node.argument as any);
+				this.contextPop('StringCallExpression');
+			},
 		//#endregion
 
 		//#region literals
