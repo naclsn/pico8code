@@ -5,7 +5,7 @@ import {
 	LanguageClient,
 	LanguageClientOptions,
 	ServerOptions,
-	TransportKind
+	TransportKind,
 } from 'vscode-languageclient/node';
 
 let client: LanguageClient;
@@ -16,22 +16,22 @@ export function activate(context: ExtensionContext) {
 
 	const serverOptions: ServerOptions = {
 		run: { module: serverModule, transport: TransportKind.ipc },
-		debug: { module: serverModule, transport: TransportKind.ipc, options: debugOptions }
+		debug: { module: serverModule, transport: TransportKind.ipc, options: debugOptions },
 	};
 
 	const clientOptions: LanguageClientOptions = {
 		documentSelector: [{ scheme: 'file', language: 'pico8' }],
 		synchronize: {
 			// Notify the server about file changes to '.pico8rc files contained in the workspace
-			fileEvents: workspace.createFileSystemWatcher('**/.pico8rc')
-		}
+			fileEvents: workspace.createFileSystemWatcher('**/.pico8rc'),
+		},
 	};
 
 	client = new LanguageClient(
 		'pico8LanguageServer',
 		'PICO-8 Language Server',
 		serverOptions,
-		clientOptions
+		clientOptions,
 	);
 
 	// Start the client. This will also launch the server
