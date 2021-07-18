@@ -37,80 +37,156 @@ export function represent(type: LuaType): string {
 	if ('string' === typeof type) return type;
 
 	if (Array.isArray(type)) {
-		return "[" + type.map(represent).join(", ") + "]";
+		const list = type
+			.map(represent)
+			.join(", ");
+		return `[${list}]`;
 	}
 
 	if (isLuaFunction(type)) {
-		//const param = type.parameters.map(represent).join(", ");
-		const param = type.parameters.map(it => `${it.name}: ${it.type}`).join(", ");
+		const param = type.parameters
+			.map(it => `${it.name}: ${it.type}`)
+			.join(", ");
 		const ret = represent(type.return);
 		return `(${param}) -> ${ret}`;
 	}
 
 	if (isLuaTable(type)) {
-		return 'table';
+		const entries = Object
+			.entries(type.entries)
+			.map(it => `${it[0]}: ${represent(it[1])}`)
+			.join(", ");
+		return `{ ${entries} }`;
 	}
 
+	// somewhat quite wrong if any "&" is added
 	const [a, b] = type.or;
 	return represent(a) + " | " + represent(b);
 }
 
-/**
- * ono
- *
- * everything is so wrong (it will split on nested "," when it shouldn't!)
- */
 export function parse(repr: string): LuaType {
-	const or = repr.lastIndexOf("|");
-	if (-1 < or) {
-		return { or: [
-			parse(repr.substring(0, or)),
-			parse(repr.substring(or + 1)),
-		] };
+	/**
+	 * find the first substring of `str` that is enclosed
+	 * by the delimiters `open` and `close` (eg. "[" and "]")
+	 * 
+	 * `open` and `close` must be different and 1 character
+	 * in length
+	 * 
+	 * the returned substring excludes the delimiters
+	 * (undefined if none where found)
+	 * 
+	 * fails if `close` is present before `open` in `str`
+	 * (ie. aborts and returns undefined)
+	 * 
+	 * @returns `[start, end]`
+	 * 
+	 * @example delimitSubstring("(a, b, c) -> [(d) -> nil]", "(", ")") === [1, 8]
+	 */
+	function delimitSubstring(str: string, open: string, close: string) {
+		let s = 0;
+		let n = 0;
+		for (let k = 0; k < str.length; k++) {
+			const c = str[k];
+			if (c === open) {
+				if (0 === n) s = k+1;
+				n++;
+			} else if (c === close) {
+				n--;
+				if (0 === n) return [s, k] as [start: number, end: number];
+				if (n < 0) break;
+			}
+		}
+		throw new SyntaxError(n < 0
+			? `No matching ${open} for closing ${close}`
+			: `No matching ${close} for opening ${open}`
+		);
+	}
+
+	/**
+	 * split `str` on `sep` in a list of substring while respecting
+	 * pairs of delimiters (eg. doesn't split on "," within "[]")
+	 * 
+	 * `sep` must be 1 character in length
+	 * 
+	 * the respected delimiters are the following pairs:
+	 * "()", "[]", "{}"
+	 * 
+	 * the returned substrings are trimmed
+	 * 
+	 * fails if `delimitSubstring` fails, returns undefined
+	 * 
+	 * @example splitCarefully("{ a: string, b: boolean }, number") === ["{ a: string, b: boolean }", " c: number"]
+	 */
+	function splitCarefully(str: string, sep: string) {
+		const r: string[] = [];
+		let l = 0;
+		const pairs = "()[]{}";
+		for (let k = 0; k < str.length; k++) {
+			const c = str[k];
+			const f = pairs.indexOf(c);
+			if (-1 < f) {
+				k+= delimitSubstring(str.substr(k), pairs[f], pairs[f+1])[1];
+			} else if (c === sep) {
+				r.push(str.substring(l, k).trim());
+				l = k+1;
+			}
+		}
+		r.push(str.substr(l).trim());
+		return r;
 	}
 
 	repr = repr.trim();
+	if ('nil' === repr || 'number' === repr || 'boolean' === repr || 'string' === repr )
+		return repr;
+
+	if (repr.includes("|")) {
+		const list = splitCarefully(repr, "|");
+		return list.map(parse).reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!);
+	}
+
+	// if (repr.includes("&")) {
+	// 	const list = splitCarefully(repr, "&");
+	// 	return list.map(parse).reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!);
+	// }
+
 	if ("{" === repr.charAt(0) && "}" === repr.charAt(repr.length-1)) {
-		return { entries: Object
-			.fromEntries(repr.substr(1, repr.length-2)
-				.split(",")
-					.map(it => {
-						const co = it.indexOf(":");
-						const key = it.substring(0, co).trim();
-						const type = parse(it.substring(co + 1));
-						return [key, type] as [string, LuaType];
-					})
+		const inner = splitCarefully(repr.substr(1, repr.length-2), ",");
+		return {
+			entries: Object.fromEntries(inner
+				.map(it => {
+					const co = it.indexOf(":");
+					const key = it.substring(0, co).trim();
+					const type = parse(it.substring(co + 1));
+					return [key, type];
+				})
 			),
 		};
 	}
 
-	const ar = repr.indexOf("->");
-	if (-1 < ar && "(" === repr.charAt(0)) {
-		const params = repr.substring(0, ar).trim();
-		const returns = repr.substring(ar + 2);
+	if ("[" === repr.charAt(0) && "]" === repr.charAt(repr.length-1)) {
+		const inner = splitCarefully(repr.substr(1, repr.length-2), ",");
+		return inner.map(parse);
+	}
+
+	if (repr.includes("->")) {
+		const [paramStart, paramEnd] = delimitSubstring(repr, "(", ")");
+		const [retStart, retEnd] = delimitSubstring(repr.substr(paramEnd), "[", "]");
+
+		const params = splitCarefully(repr.substring(paramStart, paramEnd), ",");
+
 		return {
-			parameters: params.substr(1, params.length-2)
-				.split(",")
-					.map(it => {
-						const co = it.indexOf(":");
-						const name = it.substring(0, co).trim();
-						const type = parse(it.substring(co + 1));
-						return { name, type };
-					}),
-			return: parse(returns),
+			parameters: !params[0] ? [] : params
+				.map(it => {
+					const co = it.indexOf(":");
+					const name = it.substring(0, co).trim();
+					const type = parse(it.substring(co + 1));
+					return { name, type };
+				}),
+			return: parse("[" + repr.substring(paramEnd+retStart, paramEnd+retEnd) + "]"),
 		};
 	}
 
-	if ("[" === repr.charAt(0) && "]" === repr.charAt(repr.length-1)) {
-		return repr.substr(1, repr.length-2)
-				.split(",")
-					.map(parse);
-	}
-
-	if ('nil' === repr || 'number' === repr || 'boolean' === repr || 'string' === repr )
-		return repr;
-
-	return 'error' as LuaType;
+	return 'error`'+repr+'`type' as any;
 }
 
 export function resolve(node: aug.Node): LuaType {

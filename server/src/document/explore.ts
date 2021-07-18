@@ -8,16 +8,20 @@ export type RangeLUT = { [name: string]: {
 	range: Range,
 	name: string,
 	type: LuaType,
+	scope: string,
 	info: any,
 } }
 
 type LuaVariable = {
 	// every expression that were assigned to it, last in first
 	values: aug.Expression[]
+	// corresponding scope
+	scopes: Scope[]
 }
 type Scope = {
 	labels: Record<string, Range | undefined>,
 	variables: Record<string, LuaVariable | undefined>,
+	tag: string,
 }
 type Loc = ast.Node['loc']
 
@@ -50,7 +54,7 @@ export class SelfExplore {
 		this.diagnostics = [];
 		this.symbols = [];
 		this.ranges = {};
-		this.globalScope = { labels: {}, variables: {}, };
+		this.globalScope = { tag: "global", labels: {}, variables: {}, };
 		this.contextStack = [];
 	}
 
@@ -63,13 +67,13 @@ export class SelfExplore {
 	protected ranges: RangeLUT = {};
 
 	private locate(name: string, range: Range) {
-		console.log("Locating " + name + " @" + JSON.stringify(range));
-		const val = this.lookup(name);
+		const variable = this.lookup(name);
 		this.ranges[`:${range.start.line}:${range.start.character}`] = {
 			range,
 			name,
-			type: val ? resolve(val[0]) : 'nil', // XXX
-			info: val
+			type: variable ? resolve(variable.values[0]) : 'nil', // XXX: for now '0' ie. 'latest'
+			scope: variable?.scopes[0].tag ?? this.currentScope.tag,
+			info: variable?.values.map((it, k) => `(${variable.scopes[k].tag}) ${it.type}`),
 		};
 		return range;
 	}
@@ -95,40 +99,50 @@ export class SelfExplore {
 //#endregion
 
 //#region scopes
-	protected globalScope: Scope = { labels: {}, variables: {}, };
+	protected globalScope: Scope = { tag: "global", labels: {}, variables: {}, };
 	protected currentScope!: Scope;
 
-	private fork(): Scope {
-		console.log("Forking from current scope");
+	private fork(tag: string): Scope {
 		const previousScope = this.currentScope;
 		this.currentScope = {
 			labels: Object.create(this.currentScope.labels),
 			variables: Object.create(this.currentScope.variables),
+			tag,
 		};
 		return previousScope;
 	}
 
 	private restore(previousScope: Scope) {
-		console.log("Closing and restoring scope");
 		this.currentScope = previousScope;
 	}
 
-	private declare(name: string, value: aug.Expression) {
-		// console.log("Declaring value for " + name);
-		if (!Object.prototype.hasOwnProperty.call(this.currentScope.variables, name)) {
-			// console.log("\tas shadowing");
-			// console.log("\t" + this.currentScope.variables[name]);
-			this.currentScope.variables[name] = { values: [value] };
-		} else {
-			// console.log("\tas updating");
-			// console.log("\t" + this.currentScope.variables[name]);
-			this.currentScope.variables[name]!.values.push(value);
-		}
+	/**
+	 * only declare: should not already be visible!
+	 */
+	private declare(name: string, value: aug.Expression, scope?: Scope) {
+		const theScope = scope ?? this.currentScope;
+		if (!Object.prototype.hasOwnProperty.call(theScope.variables, name)) {
+			theScope.variables[name] = {
+				values: [value],
+				scopes: [theScope],
+			};
+		} else throw new Error("How did we get here?\n" + `declare, name: ${name}, value: ${value.type}`);
+		// XXX: it was declared twice, that's how (eg. from two 'local's or a 'local' and a function param)
+	}
+
+	/**
+	 * only update, should already be declared!
+	 */
+	private update(name: string, value: aug.Expression, scope?: Scope) {
+		const variable = this.currentScope.variables[name];
+		if (variable) {
+			variable.values.unshift(value);
+			variable.scopes.unshift(scope ?? this.currentScope);
+		} else throw new Error("How did we get here?\n" + `update, name: ${name}, value: ${value.type}`);
 	}
 
 	private lookup(name: string) {
-		// console.log("Looking up " + name);
-		return this.currentScope.variables[name]?.values;
+		return this.currentScope.variables[name];
 	}
 //#endregion
 
@@ -166,31 +180,33 @@ export class SelfExplore {
 
 			Comment: (node) => { void 0; },
 
-			Identifier: node => {
+			Identifier: (node) => {
 				const augmented = node as aug.Identifier;
-				if (augmented.augValue) {
-					this.declare(augmented.name, augmented.augValue);
-				} else {
-					augmented.augValue = this.lookup(augmented.name)?.[0];
-				}
+				if (!augmented.augValue)
+					augmented.augValue = this.lookup(augmented.name)?.values[0];
+
 				this.locate(node.name, locToRange(node.loc));
 			},
 
 			FunctionDeclaration: (node) => {
 				this.contextPush(node);
-				const previousScope = this.fork();
-				node.parameters.forEach(it => {
-					(it as aug.Identifier).augValue = 'unknown' as any;
-					this.handlers[it.type](it as any);
-				});
-				node.body.forEach(it => this.handlers[it.type](it as any));
-				this.restore(previousScope);
+					const previousScope = this.fork("function line " + node.loc?.start.line);
+						node.parameters.forEach(it => {
+							(it as aug.Identifier).augValue = null as any; // XXX
+							this.handlers[it.type](it as any);
+						});
+						node.body.forEach(it => this.handlers[it.type](it as any));
+					this.restore(previousScope);
 				this.contextPop('FunctionDeclaration');
 
 				if (node.identifier) {
 					if (node.identifier.type === 'Identifier') {
 						const augmented = node.identifier as aug.Identifier;
 						augmented.augValue = node as aug.FunctionDeclaration;
+
+						// TODO: if already exist
+						if (node.isLocal) this.declare(augmented.name, augmented.augValue);
+						else this.declare(augmented.name, augmented.augValue, this.globalScope);
 					}
 					this.handlers[node.identifier.type](node.identifier as any);
 				} else {
@@ -216,10 +232,12 @@ export class SelfExplore {
 					this.warning("label not defined", locToRange(loc));
 				else {
 					const range = locToRange(label.loc);
+					const line = this.currentScope.labels[label.name]?.start.line ?? 0;
 					this.ranges[`:${range.start.line}:${range.start.character}`] = {
 						range,
 						name: label.name,
-						type: "line " + this.currentScope.labels[label.name]?.start.line as any,
+						type: "line " + (line+1) as any,
+						scope: this.currentScope.tag,
 						info: null
 					};
 				}
@@ -246,7 +264,7 @@ export class SelfExplore {
 				this.contextPush(node);
 					this.handlers[node.condition.type](node.condition as any);
 
-					const previousScope = this.fork();
+					const previousScope = this.fork("while line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
 					this.restore(previousScope);
 				this.contextPop('WhileStatement');
@@ -254,7 +272,7 @@ export class SelfExplore {
 
 			DoStatement: (node) => {
 				this.contextPush(node);
-					const previousScope = this.fork();
+					const previousScope = this.fork("do line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
 					this.restore(previousScope);
 				this.contextPop('DoStatement');
@@ -262,7 +280,7 @@ export class SelfExplore {
 
 			RepeatStatement: (node) => {
 				this.contextPush(node);
-					const previousScope = this.fork();
+					const previousScope = this.fork("repeat line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
 					this.restore(previousScope);
 
@@ -286,9 +304,9 @@ export class SelfExplore {
 						case 'StringLiteral':
 						case 'VarargLiteral':
 						case 'FunctionDeclaration':
-						// case 'BinaryExpression':
-						// case 'LogicalExpression':
-						// case 'UnaryExpression':
+						case 'BinaryExpression':
+						case 'LogicalExpression':
+						case 'UnaryExpression':
 							return augmented.augValue ?? [];
 					}
 				});
@@ -296,6 +314,8 @@ export class SelfExplore {
 					const augmented = it as aug.Identifier;
 					augmented.augValue = types[k];
 
+					// TODO: if already exist
+					this.declare(augmented.name, augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' });
 					this.handlers.Identifier(augmented);
 				});
 			},
@@ -316,9 +336,9 @@ export class SelfExplore {
 						case 'StringLiteral':
 						case 'VarargLiteral':
 						case 'FunctionDeclaration':
-						// case 'BinaryExpression':
-						// case 'LogicalExpression':
-						// case 'UnaryExpression':
+						case 'BinaryExpression':
+						case 'LogicalExpression':
+						case 'UnaryExpression':
 							return augmented.augValue ?? [];
 					}
 				});
@@ -327,23 +347,29 @@ export class SelfExplore {
 					augmented.augValue = types[k];
 
 					// if 'name' is visible from current scope
-					if (this.lookup(augmented.name)) {
-						// handle locally
-						// XXX: this will still shadow parent scope
+					const variable = this.lookup(augmented.name);
+					if (variable) {
+						// update locally
+						this.update(augmented.name, augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, variable.scopes[0]);
 						this.handlers.Identifier(augmented);
 					} else {
-						// switch to global scope
-						const previousScope = this.currentScope;
-						this.currentScope = this.globalScope;
-							this.handlers.Identifier(augmented);
-						this.currentScope = previousScope;
+						// declare globally
+						this.declare(augmented.name, augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, this.globalScope);
+						this.handlers.Identifier(augmented);
 					}
 				});
 			},
 
 			AssignmentOperatorStatement: (node) => {
+				/*-
+					this should be handled knowing that:
+						- doesn't deal well with more than one init
+						- .. same with more than one variable
+						- never apply to other than 'number' type
+						- .. except for when more than one variable
+				 */
 				// every variables should exists, so this is handled like a LocalStatement
-				const types = node.init.flatMap(it => {
+				/*const types = node.init.flatMap(it => {
 					this.handlers[it.type](it as any);
 					const augmented = it as aug.Expression;
 					switch (augmented.type) {
@@ -358,9 +384,9 @@ export class SelfExplore {
 						case 'StringLiteral':
 						case 'VarargLiteral':
 						case 'FunctionDeclaration':
-						// case 'BinaryExpression':
-						// case 'LogicalExpression':
-						// case 'UnaryExpression':
+						case 'BinaryExpression':
+						case 'LogicalExpression':
+						case 'UnaryExpression':
 							return augmented.augValue ?? [];
 					}
 				});
@@ -368,8 +394,18 @@ export class SelfExplore {
 					const augmented = it as aug.Identifier;
 					augmented.augValue = types[k];
 
-					this.handlers.Identifier(augmented);
-				});
+					// 'name' should be visible from current scope
+					const variable = this.lookup(augmented.name);
+					if (variable) {
+						// handle locally
+						this.update(augmented.name, augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, variable.scopes[0]); // XXX: pushing undefined!
+						this.handlers.Identifier(augmented);
+					} else {
+						// handle globally
+						this.declare(augmented.name, augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, this.globalScope); // XXX: pushing undefined!
+						this.handlers.Identifier(augmented);
+					}
+				});*/
 			},
 
 			CallStatement: (node) => {
@@ -380,7 +416,7 @@ export class SelfExplore {
 
 			ForNumericStatement: (node) => {
 				this.contextPush(node);
-					const previousScope = this.fork();
+					const previousScope = this.fork("for line " + node.loc?.start.line);
 						this.handlers.Identifier(node.variable);
 						[node.start, node.end, node.step].map(it => it && this.handlers[it.type](it as any));
 
@@ -391,7 +427,7 @@ export class SelfExplore {
 
 			ForGenericStatement: (node) => {
 				this.contextPush(node);
-					const previousScope = this.fork();
+					const previousScope = this.fork("for line " + node.loc?.start.line);
 						node.variables.map(it => this.handlers[it.type](it as any));
 						node.iterators.map(it => this.handlers[it.type](it as any)); // XXX
 
@@ -406,7 +442,7 @@ export class SelfExplore {
 				this.contextPush(node);
 					this.handlers[node.condition.type](node.condition as any);
 
-					const previousScope = this.fork();
+					const previousScope = this.fork("if line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
 					this.restore(previousScope);
 				this.contextPop('IfClause');
@@ -416,7 +452,7 @@ export class SelfExplore {
 				this.contextPush(node);
 					this.handlers[node.condition.type](node.condition as any);
 
-					const previousScope = this.fork();
+					const previousScope = this.fork("elseif line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
 					this.restore(previousScope);
 				this.contextPop('ElseifClause');
@@ -424,7 +460,7 @@ export class SelfExplore {
 
 			ElseClause: (node) => {
 				this.contextPush(node);
-					const previousScope = this.fork();
+					const previousScope = this.fork("else line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
 					this.restore(previousScope);
 				this.contextPop('ElseClause');
@@ -444,14 +480,17 @@ export class SelfExplore {
 
 			BinaryExpression: (node) => {
 				[node.left, node.right].map(it => this.handlers[it.type](it as any));
+				(node as aug.BinaryExpression).augValue = node;
 			},
 
 			LogicalExpression: (node) => {
 				[node.left, node.right].map(it => this.handlers[it.type](it as any));
+				(node as aug.LogicalExpression).augValue = node;
 			},
 
 			UnaryExpression: (node) => {
 				this.handlers[node.argument.type](node.argument as any);
+				(node as aug.UnaryExpression).augValue = node;
 			},
 
 			MemberExpression: (node) => { void 1; }, // TODO

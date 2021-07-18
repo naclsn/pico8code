@@ -42,16 +42,16 @@ export class Document extends SelfExplore {
 	onHover(range: Range): Hover | null {
 		const index = `:${range.start.line}:${range.start.character}`;
 		const found = this.ranges[index];
-		console.log("================" + index);
-		console.log(found);
+		// console.log("================" + index);
+		// console.log(found);
 		if (!found) return null;
 		return {
 			contents: {
 				kind: 'markdown',
 				value: [
-					found.name + ": " + represent(found.type),
-					"```json", // prevents circular errors @thx https://stackoverflow.com/a/46908358/13196480
-					JSON.stringify(found.info, (k, v) => k && v && typeof v !== "number" ? (Array.isArray(v) ? "[object Array]" : "" + v) : v, 2),
+					`(${found.scope}) ${found.name}: ${represent(found.type)}`,
+					"```json",
+					JSON.stringify(found.info, (k, v) => 'augValue' != k ? v : '[Circular]', 2),
 					"```",
 				].join("\r\n"),
 			}
@@ -69,9 +69,9 @@ export class Document extends SelfExplore {
 		//explore[this.ast.type]?.(this.symbols, this.ast);
 
 		//console.log("Building scope");
-		const settings = this.manager.settings.get(this.uri);
-		console.log("Pre-defined globals:");
-		console.log(settings?.parse.preDefinedGlobals);
+		// const settings = this.manager.settings.get(this.uri);
+		// console.log("Pre-defined globals:");
+		// console.log(settings?.parse.preDefinedGlobals);
 		this.explore();
 		//console.dir(this.globalScope, { depth: 42 });
 

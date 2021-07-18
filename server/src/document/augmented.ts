@@ -79,11 +79,17 @@ export namespace aug {
 
 	export interface TableConstructorExpression extends ast.TableConstructorExpression { }
 
-	export interface UnaryExpression extends ast.UnaryExpression { }
+	export interface UnaryExpression extends ast.UnaryExpression {
+		augValue?: Expression;
+	}
 
-	export interface BinaryExpression extends ast.BinaryExpression { }
+	export interface BinaryExpression extends ast.BinaryExpression {
+		augValue?: Expression;
+	}
 
-	export interface LogicalExpression extends ast.LogicalExpression { }
+	export interface LogicalExpression extends ast.LogicalExpression {
+		augValue?: Expression;
+	}
 
 	export interface MemberExpression extends ast.MemberExpression { }
 
