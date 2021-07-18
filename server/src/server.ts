@@ -144,8 +144,8 @@ connection.onHover(textDocumentPosition => {
 
 	let start = textDocumentPosition.position.character;
 	let end = start;
-	while (-1 < start && !" ()[],;.:".includes(line[start])) start--;
-	while (end < line.length && !" ()[],;.:".includes(line[end])) end++;
+	while (-1 < start && !" ()[],;.:<=>+-*/^\\~!&|'\"@%$#".includes(line[start])) start--;
+	while (end < line.length && !" ()[],;.:<=>+-*/^\\~!&|'\"@%$#".includes(line[end])) end++;
 
 	const wordRange = range;
 	wordRange.start.character = start+1;

@@ -73,4 +73,5 @@ export class Pico8Document extends SelfExplore {
 		//console.log("Found ranges");
 		//console.dir(this.ranges, { depth: 42 });
 	}
+
 }

@@ -1,6 +1,6 @@
 import { ast } from 'pico8parse';
 import { Range } from 'vscode-languageserver-textdocument';
-import { Diagnostic, DiagnosticSeverity, DocumentSymbol } from 'vscode-languageserver';
+import { Diagnostic, DiagnosticSeverity, DocumentSymbol, InitializeError } from 'vscode-languageserver';
 import { aug } from './augmented';
 import { LuaType, resolve } from './typing';
 
@@ -11,7 +11,10 @@ export type RangeLUT = { [name: string]: {
 	info: any,
 } }
 
-type LuaVariable = { node: aug.Node }
+type LuaVariable = {
+	// every expression that were assigned to it, last in first
+	values: aug.Expression[]
+}
 type Scope = {
 	labels: Record<string, Range | undefined>,
 	variables: Record<string, LuaVariable | undefined>,
@@ -65,7 +68,7 @@ export class SelfExplore {
 		this.ranges[`:${range.start.line}:${range.start.character}`] = {
 			range,
 			name,
-			type: val ? resolve(val) : 'nil',
+			type: val ? resolve(val[0]) : 'nil', // XXX
 			info: val
 		};
 		return range;
@@ -110,22 +113,22 @@ export class SelfExplore {
 		this.currentScope = previousScope;
 	}
 
-	private declare(name: string, value: aug.Node) {
+	private declare(name: string, value: aug.Expression) {
 		// console.log("Declaring value for " + name);
 		if (!Object.prototype.hasOwnProperty.call(this.currentScope.variables, name)) {
 			// console.log("\tas shadowing");
 			// console.log("\t" + this.currentScope.variables[name]);
-			this.currentScope.variables[name] = { node: value };
+			this.currentScope.variables[name] = { values: [value] };
 		} else {
 			// console.log("\tas updating");
 			// console.log("\t" + this.currentScope.variables[name]);
-			this.currentScope.variables[name]!.node = value;
+			this.currentScope.variables[name]!.values.push(value);
 		}
 	}
 
-	private lookup(name: string): aug.Node | undefined {
+	private lookup(name: string) {
 		// console.log("Looking up " + name);
-		return this.currentScope.variables[name]?.node;
+		return this.currentScope.variables[name]?.values;
 	}
 //#endregion
 
@@ -168,7 +171,7 @@ export class SelfExplore {
 				if (augmented.augValue) {
 					this.declare(augmented.name, augmented.augValue);
 				} else {
-					augmented.augValue = this.lookup(augmented.name) as any;
+					augmented.augValue = this.lookup(augmented.name)?.[0];
 				}
 				this.locate(node.name, locToRange(node.loc));
 			},
@@ -268,30 +271,105 @@ export class SelfExplore {
 			},
 
 			LocalStatement: (node) => {
-				this.handlers[node.init[0].type](node.init[0] as any);
-				const augmented = (node.variables[0] as aug.Identifier);
-				augmented.augValue = node.init[0] as any;
+				const types = node.init.flatMap(it => {
+					this.handlers[it.type](it as any);
+					const augmented = it as aug.Expression;
+					switch (augmented.type) {
+						case 'CallExpression':
+						case 'TableCallExpression':
+						case 'StringCallExpression':
+							return augmented.augValues ?? [];
+						case 'Identifier':
+						case 'NilLiteral':
+						case 'NumericLiteral':
+						case 'BooleanLiteral':
+						case 'StringLiteral':
+						case 'VarargLiteral':
+						case 'FunctionDeclaration':
+						// case 'BinaryExpression':
+						// case 'LogicalExpression':
+						// case 'UnaryExpression':
+							return augmented.augValue ?? [];
+					}
+				});
+				node.variables.forEach((it, k) => {
+					const augmented = it as aug.Identifier;
+					augmented.augValue = types[k];
 
-				this.handlers.Identifier(augmented);
+					this.handlers.Identifier(augmented);
+				});
 			},
 
 			AssignmentStatement: (node) => {
-				this.handlers[node.init[0].type](node.init[0] as any);
-				const augmented = (node.variables[0] as aug.Identifier);
-				augmented.augValue = node.init[0] as any;
+				const types = node.init.flatMap(it => {
+					this.handlers[it.type](it as any);
+					const augmented = it as aug.Expression;
+					switch (augmented.type) {
+						case 'CallExpression':
+						case 'TableCallExpression':
+						case 'StringCallExpression':
+							return augmented.augValues ?? [];
+						case 'Identifier':
+						case 'NilLiteral':
+						case 'NumericLiteral':
+						case 'BooleanLiteral':
+						case 'StringLiteral':
+						case 'VarargLiteral':
+						case 'FunctionDeclaration':
+						// case 'BinaryExpression':
+						// case 'LogicalExpression':
+						// case 'UnaryExpression':
+							return augmented.augValue ?? [];
+					}
+				});
+				node.variables.forEach((it, k) => {
+					const augmented = it as aug.Identifier;
+					augmented.augValue = types[k];
 
-				const previousScope = this.currentScope;
-				this.currentScope = this.globalScope;
-					this.handlers.Identifier(augmented);
-				this.currentScope = previousScope;
+					// if 'name' is visible from current scope
+					if (this.lookup(augmented.name)) {
+						// handle locally
+						// XXX: this will still shadow parent scope
+						this.handlers.Identifier(augmented);
+					} else {
+						// switch to global scope
+						const previousScope = this.currentScope;
+						this.currentScope = this.globalScope;
+							this.handlers.Identifier(augmented);
+						this.currentScope = previousScope;
+					}
+				});
 			},
 
 			AssignmentOperatorStatement: (node) => {
-				this.handlers[node.init[0].type](node.init[0] as any);
-				const augmented = (node.variables[0] as aug.Identifier);
-				augmented.augValue = node.init[0] as any;
+				// every variables should exists, so this is handled like a LocalStatement
+				const types = node.init.flatMap(it => {
+					this.handlers[it.type](it as any);
+					const augmented = it as aug.Expression;
+					switch (augmented.type) {
+						case 'CallExpression':
+						case 'TableCallExpression':
+						case 'StringCallExpression':
+							return augmented.augValues ?? [];
+						case 'Identifier':
+						case 'NilLiteral':
+						case 'NumericLiteral':
+						case 'BooleanLiteral':
+						case 'StringLiteral':
+						case 'VarargLiteral':
+						case 'FunctionDeclaration':
+						// case 'BinaryExpression':
+						// case 'LogicalExpression':
+						// case 'UnaryExpression':
+							return augmented.augValue ?? [];
+					}
+				});
+				node.variables.forEach((it, k) => {
+					const augmented = it as aug.Identifier;
+					augmented.augValue = types[k];
 
-				this.handlers.Identifier(augmented);
+					this.handlers.Identifier(augmented);
+				});
 			},
 
 			CallStatement: (node) => {
@@ -382,7 +460,7 @@ export class SelfExplore {
 
 			CallExpression: (node) => {
 				this.contextPush(node);
-					const augmented = (node.base as aug.Identifier);
+					const augmented = node.base as aug.Identifier;
 					this.handlers.Identifier(augmented);
 					(node as aug.CallExpression).augValues = [augmented.augValue!];
 
@@ -392,7 +470,7 @@ export class SelfExplore {
 
 			TableCallExpression: (node) => {
 				this.contextPush(node);
-					const augmented = (node.base as aug.Identifier);
+					const augmented = node.base as aug.Identifier;
 					this.handlers.Identifier(augmented);
 					(node as aug.TableCallExpression).augValues = [augmented.augValue!];
 
@@ -402,7 +480,7 @@ export class SelfExplore {
 
 			StringCallExpression: (node) => {
 				this.contextPush(node);
-					const augmented = (node.base as aug.Identifier);
+					const augmented = node.base as aug.Identifier;
 					this.handlers.Identifier(augmented);
 					(node as aug.StringCallExpression).augValues = [augmented.augValue!];
 

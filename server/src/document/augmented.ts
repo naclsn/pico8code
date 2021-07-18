@@ -3,7 +3,6 @@
 import { ast } from 'pico8parse';
 
 export namespace aug {
-	export type Valued = Literal | FunctionDeclaration | Identifier;// = Expression
 
 	export interface LabelStatement extends ast.LabelStatement { }
 
@@ -34,12 +33,12 @@ export namespace aug {
 	export interface AssignmentOperatorStatement extends ast.AssignmentOperatorStatement { }
 
 	export interface CallStatement extends ast.CallStatement {
-		augValues?: Valued[];
+		augValues?: Expression[];
 	}
 
 	export interface FunctionDeclaration extends ast.FunctionDeclaration {
 		augReturns?: ReturnStatement[];
-		augValue?: Valued;
+		augValue?: Expression;
 	}
 
 	export interface ForNumericStatement extends ast.ForNumericStatement { }
@@ -49,27 +48,27 @@ export namespace aug {
 	export interface Chunk extends ast.Chunk { }
 
 	export interface Identifier extends ast.Identifier {
-		augValue?: Valued;
+		augValue?: Expression;
 	}
 
 	export interface StringLiteral extends ast.StringLiteral {
-		augValue?: Valued;
+		augValue?: Expression;
 	}
 
 	export interface NumericLiteral extends ast.NumericLiteral {
-		augValue?: Valued;
+		augValue?: Expression;
 	}
 
 	export interface BooleanLiteral extends ast.BooleanLiteral {
-		augValue?: Valued;
+		augValue?: Expression;
 	}
 
 	export interface NilLiteral extends ast.NilLiteral {
-		augValue?: Valued;
+		augValue?: Expression;
 	}
 
 	export interface VarargLiteral extends ast.VarargLiteral {
-		augValue?: Valued;
+		augValue?: Expression;
 	}
 
 	export interface TableKey extends ast.TableKey { }
@@ -91,15 +90,15 @@ export namespace aug {
 	export interface IndexExpression extends ast.IndexExpression { }
 
 	export interface CallExpression extends ast.CallExpression {
-		augValues?: Valued[];
+		augValues?: Expression[];
 	}
 
 	export interface TableCallExpression extends ast.TableCallExpression {
-		augValues?: Valued[];
+		augValues?: Expression[];
 	}
 
 	export interface StringCallExpression extends ast.StringCallExpression {
-		augValues?: Valued[];
+		augValues?: Expression[];
 	}
 
 	export interface Comment extends ast.Comment { }
@@ -110,7 +109,7 @@ export namespace aug {
 		| NumericLiteral
 		| BooleanLiteral
 		| NilLiteral
-		| VarargLiteral;
+		| VarargLiteral
 
 	export type Expression
 		= FunctionDeclaration
@@ -124,7 +123,7 @@ export namespace aug {
 		| IndexExpression
 		| CallExpression
 		| TableCallExpression
-		| StringCallExpression;
+		| StringCallExpression
 
 	export type Statement
 		= LabelStatement
@@ -141,7 +140,7 @@ export namespace aug {
 		| CallStatement
 		| FunctionDeclaration
 		| ForNumericStatement
-		| ForGenericStatement;
+		| ForGenericStatement
 
 	export type Node
 		= Statement
@@ -153,5 +152,6 @@ export namespace aug {
 		| TableKey
 		| TableKeyString
 		| TableValue
-		| Comment;
+		| Comment
+
 }
