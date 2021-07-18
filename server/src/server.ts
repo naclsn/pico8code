@@ -1,6 +1,5 @@
 import {
 	createConnection,
-	TextDocuments,
 	ProposedFeatures,
 	DidChangeConfigurationNotification,
 	CompletionItem,
@@ -9,15 +8,12 @@ import {
 	InitializeResult,
 } from 'vscode-languageserver/node';
 
-import { TextDocument } from 'vscode-languageserver-textdocument';
-import { Pico8Document } from './document/index';
+import { DocumentManager } from './document/index';
 
 // Include all preview / proposed LSP features.
 const connection = createConnection(ProposedFeatures.all);
-// Simple text document manager.
-const documents = new TextDocuments(TextDocument);
 
-const documentCache: Record<string, Pico8Document | undefined> = { };
+const documentManager = new DocumentManager();
 
 let hasConfigurationCapability = false;
 let hasWorkspaceFolderCapability = false;
@@ -76,16 +72,19 @@ connection.onInitialized(() => {
 	}
 });
 
-documents.onDidChangeContent(change => {
-	//console.log("We received a content update");
+/*connection.onDidChangeConfiguration(change => {
+	if (hasConfigurationCapability) {
+		// Reset all cached document settings
+		documentSettings.clear();
+	} else {
+		globalSettings = <ExampleSettings>(
+			(change.settings.languageServerExample || defaultSettings)
+		);
+	}
 
-	const uri = change.document.uri;
-	const document = documentCache[uri] ?? new Pico8Document(connection, uri);
-	const diagnostics = document.onContentUpdate(change.document);
-
-	documentCache[uri] = document;
-	connection.sendDiagnostics({ diagnostics, uri });
-});
+	// Revalidate all open text documents
+	//documents.all().forEach(validateTextDocument);
+});*/
 
 connection.onDidChangeWatchedFiles(change => {
 	//console.log("We received a file change event:");
@@ -125,41 +124,5 @@ connection.onCompletionResolve(item => {
 	return item;
 });
 
-connection.onHover(textDocumentPosition => {
-	console.log("Hovering: " + JSON.stringify(textDocumentPosition.position));
-
-	const document = documentCache[textDocumentPosition.textDocument.uri];
-	if (!document) return null;
-
-	const range = {
-		start: { ...textDocumentPosition.position },
-		end: { ...textDocumentPosition.position },
-	};
-	range.start.character = 0;
-	range.end.character = 999;
-
-	const line = documents.get(textDocumentPosition.textDocument.uri)?.getText(range);
-	//console.log("`" + line + "`");
-	if (!line) return null;
-
-	let start = textDocumentPosition.position.character;
-	let end = start;
-	while (-1 < start && !" ()[],;.:<=>+-*/^\\~!&|'\"@%$#".includes(line[start])) start--;
-	while (end < line.length && !" ()[],;.:<=>+-*/^\\~!&|'\"@%$#".includes(line[end])) end++;
-
-	const wordRange = range;
-	wordRange.start.character = start+1;
-	wordRange.end.character = end;
-	//console.log(JSON.stringify(wordRange));
-	return document.onHoverAt(wordRange, textDocumentPosition.position);
-});
-
-connection.onDocumentSymbol(textDocumentIdentifier => {
-	//console.log("Requesting document symbols");
-
-	const document = documentCache[textDocumentIdentifier.textDocument.uri];
-	return document?.onRequestSymbols();
-});
-
-documents.listen(connection);
+documentManager.listen(connection);
 connection.listen();
