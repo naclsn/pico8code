@@ -39,8 +39,30 @@
 		],
 		"configuration": {
 			"type": "object",
-			"title": "Pico-8 Configuration",
-			"properties": {}
+			"title": "PICO-8 Code",
+			"properties": {
+				"pico8.parse.defaultApiVersion": {
+					"description": "Version of the PICO-8 API to use.",
+					"enum": [ "0.2.1", "0.2.2" ],
+					"default": "0.2.1"
+				},
+				"pico8.parse.preDefinedGlobals": {
+					"markdownDescription": "Define an additional list of global variables. Each entry should be a valid Lua identifier followed by a type annotation.\nExamples:\n* `add: (number, number) -> number`\n* `window: { width: number, height: number }`\n* `prop: () -> string | number`\n* `size: () -> [number, number]`",
+					"type": "array",
+					"default": []
+				},
+				"pico8.trace.server": {
+					"scope": "window",
+					"type": "string",
+					"enum": [
+						"off",
+						"messages",
+						"verbose"
+					],
+					"default": "off",
+					"description": "Traces the communication between VS Code and the language server."
+				}
+			}
 		}
 	},
 	"scripts": {

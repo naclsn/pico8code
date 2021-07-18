@@ -10,7 +10,7 @@ export type LuaTable = {
 }
 
 export type LuaFunction = {
-	parameters: string[],
+	parameters: ({ name: string, type: LuaType })[],
 	return: LuaType,
 }
 
@@ -40,19 +40,77 @@ export function represent(type: LuaType): string {
 		return "[" + type.map(represent).join(", ") + "]";
 	}
 
-	if (isLuaTable(type)) {
-		return 'table';
-	}
-
 	if (isLuaFunction(type)) {
 		//const param = type.parameters.map(represent).join(", ");
-		const param = type.parameters.join(", ");
+		const param = type.parameters.map(it => `${it.name}: ${it.type}`).join(", ");
 		const ret = represent(type.return);
 		return `(${param}) -> ${ret}`;
 	}
 
+	if (isLuaTable(type)) {
+		return 'table';
+	}
+
 	const [a, b] = type.or;
 	return represent(a) + " | " + represent(b);
+}
+
+/**
+ * ono
+ *
+ * everything is so wrong (it will split on nested "," when it shouldn't!)
+ */
+export function parse(repr: string): LuaType {
+	const or = repr.lastIndexOf("|");
+	if (-1 < or) {
+		return { or: [
+			parse(repr.substring(0, or)),
+			parse(repr.substring(or + 1)),
+		] };
+	}
+
+	repr = repr.trim();
+	if ("{" === repr.charAt(0) && "}" === repr.charAt(repr.length-1)) {
+		return { entries: Object
+			.fromEntries(repr.substr(1, repr.length-2)
+				.split(",")
+					.map(it => {
+						const co = it.indexOf(":");
+						const key = it.substring(0, co).trim();
+						const type = parse(it.substring(co + 1));
+						return [key, type] as [string, LuaType];
+					})
+			),
+		};
+	}
+
+	const ar = repr.indexOf("->");
+	if (-1 < ar && "(" === repr.charAt(0)) {
+		const params = repr.substring(0, ar).trim();
+		const returns = repr.substring(ar + 2);
+		return {
+			parameters: params.substr(1, params.length-2)
+				.split(",")
+					.map(it => {
+						const co = it.indexOf(":");
+						const name = it.substring(0, co).trim();
+						const type = parse(it.substring(co + 1));
+						return { name, type };
+					}),
+			return: parse(returns),
+		};
+	}
+
+	if ("[" === repr.charAt(0) && "]" === repr.charAt(repr.length-1)) {
+		return repr.substr(1, repr.length-2)
+				.split(",")
+					.map(parse);
+	}
+
+	if ('nil' === repr || 'number' === repr || 'boolean' === repr || 'string' === repr )
+		return repr;
+
+	return 'error' as LuaType;
 }
 
 export function resolve(node: aug.Node): LuaType {

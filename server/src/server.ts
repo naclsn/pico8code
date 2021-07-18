@@ -8,29 +8,27 @@ import {
 	InitializeResult,
 } from 'vscode-languageserver/node';
 
-import { DocumentManager } from './document/index';
+import { SettingsManager } from './settings';
+import { DocumentsManager } from './documents';
 
 // Include all preview / proposed LSP features.
 const connection = createConnection(ProposedFeatures.all);
 
-const documentManager = new DocumentManager();
-
-let hasConfigurationCapability = false;
-let hasWorkspaceFolderCapability = false;
-let hasDiagnosticRelatedInformationCapability = false;
+const settings = new SettingsManager();
+const documents = new DocumentsManager(settings);
 
 connection.onInitialize(params => {
 	const capabilities = params.capabilities;
 
 	// Does the client support the `workspace/configuration` request?
 	// If not, we fall back using global settings.
-	hasConfigurationCapability = !!(
+	settings.hasConfigurationCapability = !!(
 		capabilities.workspace && !!capabilities.workspace.configuration
 	);
-	hasWorkspaceFolderCapability = !!(
+	settings.hasWorkspaceFolderCapability = !!(
 		capabilities.workspace && !!capabilities.workspace.workspaceFolders
 	);
-	hasDiagnosticRelatedInformationCapability = !!(
+	settings.hasDiagnosticRelatedInformationCapability = !!(
 		capabilities.textDocument &&
 		capabilities.textDocument.publishDiagnostics &&
 		capabilities.textDocument.publishDiagnostics.relatedInformation
@@ -48,7 +46,7 @@ connection.onInitialize(params => {
 			documentSymbolProvider: true,
 		},
 	};
-	if (hasWorkspaceFolderCapability) {
+	if (settings.hasWorkspaceFolderCapability) {
 		result.capabilities.workspace = {
 			workspaceFolders: {
 				supported: true,
@@ -59,11 +57,11 @@ connection.onInitialize(params => {
 });
 
 connection.onInitialized(() => {
-	if (hasConfigurationCapability) {
+	if (settings.hasConfigurationCapability) {
 		// Register for all configuration changes.
 		connection.client.register(DidChangeConfigurationNotification.type, undefined);
 	}
-	if (hasWorkspaceFolderCapability) {
+	if (settings.hasWorkspaceFolderCapability) {
 		connection.workspace.onDidChangeWorkspaceFolders(event => {
 			//console.log("Workspace folder change event received:");
 			//console.log(" + '" + event.added.join("', '") + "'");
@@ -71,20 +69,6 @@ connection.onInitialized(() => {
 		});
 	}
 });
-
-/*connection.onDidChangeConfiguration(change => {
-	if (hasConfigurationCapability) {
-		// Reset all cached document settings
-		documentSettings.clear();
-	} else {
-		globalSettings = <ExampleSettings>(
-			(change.settings.languageServerExample || defaultSettings)
-		);
-	}
-
-	// Revalidate all open text documents
-	//documents.all().forEach(validateTextDocument);
-});*/
 
 connection.onDidChangeWatchedFiles(change => {
 	//console.log("We received a file change event:");
@@ -124,5 +108,6 @@ connection.onCompletionResolve(item => {
 	return item;
 });
 
-documentManager.listen(connection);
+settings.listen(connection);
+documents.listen(connection);
 connection.listen();

@@ -1,18 +1,19 @@
 import { parse, Options as ParseOptions, SyntaxError as ParseError } from 'pico8parse';
 import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent } from 'vscode-languageserver';
 import { Range } from 'vscode-languageserver-textdocument';
-import { SelfExplore } from './explore';
-import { represent } from './typing';
+import { SelfExplore } from './document/explore';
+import { represent } from './document/typing';
 import { TextDocument } from 'vscode-languageserver-textdocument';
+import { SettingsManager } from './settings';
 
 const parseOptions: Partial<ParseOptions> = {
 	luaVersion: 'PICO-8-0.2.1',
 	locations: true,
 };
 
-export class Pico8Document extends SelfExplore {
+export class Document extends SelfExplore {
 
-	constructor(public uri: string) {
+	constructor(public uri: string, private manager: DocumentsManager) {
 		super();
 	}
 
@@ -68,6 +69,9 @@ export class Pico8Document extends SelfExplore {
 		//explore[this.ast.type]?.(this.symbols, this.ast);
 
 		//console.log("Building scope");
+		const settings = this.manager.settings.get(this.uri);
+		console.log("Pre-defined globals:");
+		console.log(settings?.parse.preDefinedGlobals);
 		this.explore();
 		//console.dir(this.globalScope, { depth: 42 });
 
@@ -77,12 +81,12 @@ export class Pico8Document extends SelfExplore {
 
 }
 
-export class DocumentManager extends TextDocuments<TextDocument> {
+export class DocumentsManager extends TextDocuments<TextDocument> {
 
-	private cache: Map<string, Pico8Document>;
+	private cache: Map<string, Document>;
 	private connection?: Connection;
 
-	constructor() {
+	constructor(public settings: SettingsManager) {
 		super(TextDocument);
 		this.cache = new Map();
 	}
@@ -98,7 +102,7 @@ export class DocumentManager extends TextDocuments<TextDocument> {
 
 	private handleOnDidChangeContent(change: TextDocumentChangeEvent<TextDocument>) {
 		const uri = change.document.uri;
-		const document = this.cache.get(uri) ?? new Pico8Document(uri);
+		const document = this.cache.get(uri) ?? new Document(uri, this);
 		const diagnostics = document.onContentUpdate(change.document);
 
 		this.cache.set(uri, document);
