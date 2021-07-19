@@ -1,5 +1,5 @@
 import { ast } from 'pico8parse';
-import { Diagnostic, DiagnosticSeverity, DocumentSymbol } from 'vscode-languageserver';
+import { Diagnostic, DiagnosticSeverity, DocumentSymbol, SymbolKind, SymbolTag } from 'vscode-languageserver';
 import { Range } from 'vscode-languageserver-textdocument';
 
 import { aug } from './augmented';
@@ -14,50 +14,74 @@ type NodeHandler = { [TType in TTypes]: (node: FindByTType<ast.Node, TType>) => 
 
 export class SelfExplore {
 	protected ast: ast.Chunk = { type: 'Chunk', body: [] };
-	protected symbols: DocumentSymbol[] = [];
+	private handlers: NodeHandler;
 
 	protected reset() {
 		this.ast = { type: 'Chunk', body: [] };
 
+		this.docLineMap = {};
+
 		this.diagnostics = [];
+
 		this.symbols = [];
+		this.currentSymbol = undefined;
+
+		this.lutScopes = [];
+		this.globalScope = { tag: "global", labels: {}, variables: {}, };
+		this.currentScope = undefined!;
 
 		this.lutVariables = {};
-		this.lutScopes = [];
 
-		this.globalScope = { tag: "global", labels: {}, variables: {}, };
 		this.contextStack = [];
 	}
 
-	private handlers: NodeHandler;
-
 	protected explore() {
-		this.handlers.Chunk(this.ast);
+		if (this.ast) {
+			this.gatherDoc();
+			this.handlers.Chunk(this.ast);
+		} else throw new Error("How did we get here?\n" + `explore, ast: ${this.ast}`);
 	}
 
-	protected lutVariables: { [name: string]: {
+//#region doc
+	private docLineMap: { [endLine: number]: {
 		range: Range,
-		name: string,
-		type: LuaType,
-		/*-*/scopeTag: string,
-		/*-*/info: any,
+		raw: string,
+		value: string,
 	} } = {};
-	protected lutScopes: {
-		range: Range,
-		scope: LuaScope,
-	}[] = [];
 
-	private locate(name: string, range: Range) {
-		const variable = this.lookup(name);
-		this.lutVariables[`:${range.start.line}:${range.start.character}`] = {
-			range,
-			name,
-			type: variable ? resolve(variable.values[0]) : 'nil', // XXX: for now '0' ie. 'latest'
-			scopeTag: variable?.scopes[0].tag ?? this.currentScope.tag,
-			info: variable?.values.map((it, k) => `(${variable.scopes[k].tag}) ${it.type}`),
-		};
-		return range;
+	/**
+	 * gather every long-string comments and map them by _ending_ line number
+	 * 
+	 * note: line is the `Position['line']`
+	 * 
+	 * XXX:
+	 * because comments are just chucked in an array under the main 'Chunk',
+	 * it is simpler to have a requirement that doc comment be attached to the
+	 * associated object with no line in between and not on the same line
+	 */
+	private gatherDoc() { // XXX: the @types/pico8parse is not up-to-date
+		(this.ast.comments as ast.Comment[] | undefined)?.forEach(it => {
+			if (it.raw.startsWith("--[[") && it.raw.endsWith("]]")) {
+				const range = locToRange(it.loc);
+				this.docLineMap[range.end.line] = {
+					range,
+					raw: it.rawInterrupted ?? it.raw,
+					value: it.value,
+				};
+			}
+		});
 	}
+
+	/**
+	 * XXX:
+	 * because comments are just chucked in an array under the main 'Chunk',
+	 * it is simpler to have a requirement that doc comment be attached to the
+	 * associated object with no line in between and not on the same line
+	 */
+	private matchingDoc(range: Range) {
+		return this.docLineMap[range.start.line - 1]?.value;
+	}
+//#endregion
 
 //#region diagnostics
 	protected diagnostics: Diagnostic[] = [];
@@ -95,7 +119,34 @@ export class SelfExplore {
 	}
 //#endregion
 
+//#region symbols
+	protected symbols: DocumentSymbol[] = [];
+	protected currentSymbol?: DocumentSymbol & { parent?: DocumentSymbol };
+
+	private symbolEnter(name: string, kind: SymbolKind, range: Range, selectionRange: Range) {
+		const newSymbol = { name, kind, range, selectionRange, parent: this.currentSymbol };
+		if (this.currentSymbol) {
+			if (!this.currentSymbol.children) this.currentSymbol.children = [newSymbol];
+			else this.currentSymbol.children.push(newSymbol);
+		} else this.symbols.push(newSymbol);
+		this.currentSymbol = newSymbol;
+	}
+
+	private symbolExit(detail?: string, tags?: SymbolTag[]) {
+		if (this.currentSymbol) {
+			this.currentSymbol.detail = detail;
+			this.currentSymbol.tags = tags;
+		} else throw new Error("How did we get here?\n" + `symbolExit, detail: ${detail}, tags: ${tags}`);
+		this.currentSymbol = this.currentSymbol.parent;
+	}
+//#endregion
+
 //#region scopes
+	protected lutScopes: {
+		range: Range,
+		scope: LuaScope,
+	}[] = [];
+
 	protected globalScope: LuaScope = { tag: "global", labels: {}, variables: {}, };
 	protected currentScope!: LuaScope;
 
@@ -164,6 +215,31 @@ export class SelfExplore {
 	}
 //#endregion
 
+//#region variables
+	protected lutVariables: { [name: string]: {
+		range: Range,
+		name: string,
+		type: LuaType,
+		doc?: string,
+		/*-*/scopeTag: string,
+		/*-*/info?: string[],
+	} } = {};
+
+	private locate(name: string, range: Range) {
+		const variable = this.lookup(name);
+		const doc = this.matchingDoc(range);
+		this.lutVariables[`:${range.start.line}:${range.start.character}`] = {
+			range,
+			name,
+			type: variable ? resolve(variable.values[0]) : 'nil', // XXX: for now '0' ie. 'latest'
+			doc,
+			scopeTag: variable?.scopes[0].tag ?? this.currentScope.tag,
+			info: variable?.values.map((it, k) => `(${variable.scopes[k].tag}) ${it.type}`),
+		};
+		return range;
+	}
+//#endregion
+
 //#region context
 	private contextStack: aug.Node[] = [];
 
@@ -210,18 +286,24 @@ export class SelfExplore {
 			},
 
 			FunctionDeclaration: (node) => {
-				this.contextPush(node);
-					const previousScope = this.fork(locToRange(node.loc), "function line " + node.loc?.start.line);
-						node.parameters.forEach(it => {
-							(it as aug.Identifier).augValue = null as any; // XXX
-							this.handlers[it.type](it as any);
-						});
-						node.body.forEach(it => this.handlers[it.type](it as any));
-					this.restore(previousScope);
-				this.contextPop('FunctionDeclaration');
+				const range = locToRange(node.loc);
 
+				// XXX: selectionRange and such will need the identifier part to be processed before (or at least some of it)
+				this.symbolEnter('Identifier' === node.identifier?.type ? node.identifier.name : "<anonymous>", SymbolKind.Function, range, range);
+					this.contextPush(node);
+						const previousScope = this.fork(range, "function line " + node.loc?.start.line);
+							node.parameters.forEach(it => {
+								(it as aug.Identifier).augValue = { type: 'NilLiteral', value: null, raw: '' };
+								this.handlers[it.type](it as any);
+							});
+							node.body.forEach(it => this.handlers[it.type](it as any));
+						this.restore(previousScope);
+					this.contextPop('FunctionDeclaration');
+				this.symbolExit();
+
+				(node as aug.FunctionDeclaration).augValue = node;
 				if (node.identifier) {
-					if (node.identifier.type === 'Identifier') {
+					if ('Identifier' === node.identifier.type) {
 						const augmented = node.identifier as aug.Identifier;
 						augmented.augValue = node as aug.FunctionDeclaration;
 
@@ -230,8 +312,6 @@ export class SelfExplore {
 						else this.declare(augmented.name, augmented.augValue, this.globalScope);
 					}
 					this.handlers[node.identifier.type](node.identifier as any);
-				} else {
-					(node as aug.FunctionDeclaration).augValue = node;
 				}
 			},
 
@@ -259,7 +339,6 @@ export class SelfExplore {
 						name: label.name,
 						type: "line " + (line+1) as any,
 						scopeTag: this.currentScope.tag,
-						info: null
 					};
 				}
 			},

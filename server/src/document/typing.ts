@@ -201,9 +201,11 @@ export function resolve(node: aug.Node): LuaType {
 		case 'TableConstructorExpression': return { entries: {} };
 
 		case 'FunctionDeclaration': {
-			//const parameters = node.parameters.map(resolve);
-			const parameters = node.parameters.map(it => (it as any).name ?? "...");
-			// join each possible return as a union
+			const parameters = node.parameters.map(it => ({
+				name: (it as any).name ?? "...",
+				type: resolve(it),
+			}));
+			// join each possible return as a union; left branching ie. (a | b) | c
 			const ret = (node.augReturns ?? []).map(resolve).reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!) ?? 'nil';
 			return { parameters, return: ret };
 		}

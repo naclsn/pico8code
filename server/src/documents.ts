@@ -10,6 +10,7 @@ import { findWordRange, rangeContains } from './util';
 const parseOptions: Partial<ParseOptions> = {
 	luaVersion: 'PICO-8-0.2.1', // XXX: from option or from p8 file header
 	locations: true,
+	comments: true,
 };
 
 export class Document extends SelfExplore {
@@ -24,6 +25,7 @@ export class Document extends SelfExplore {
 			this.reset();
 			this.ast = parse(textDocument.getText(), parseOptions);
 			this.explore();
+			console.log("------------- done -------------");
 		} catch (err) {
 			if (err instanceof ParseError) {
 				const line = err.line-1;
@@ -48,9 +50,18 @@ export class Document extends SelfExplore {
 				kind: 'markdown',
 				value: [
 					`(${found.scopeTag}) ${found.name}: ${represent(found.type)}`,
-					"```json",
-					JSON.stringify(found.info, (k, v) => 'augValue' != k ? v : '[Circular]', 2),
-					"```",
+					...(!found.doc ? [] : [
+						" ",
+						"---",
+						found.doc,
+					]),
+					...(!found.info ?  [] : [
+						" ",
+						"---",
+						"```",
+						...found.info,
+						"```",
+					]),
 				].join("\r\n"),
 			}
 		};
