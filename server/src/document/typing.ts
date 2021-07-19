@@ -43,6 +43,11 @@ export type LuaScope = {
 	tag: string,
 }
 
+export type LuaDoc = {
+	type?: LuaType,
+	text: string,
+}
+
 export function isLuaTable(type: LuaType): type is LuaTable {
 	return !!(type as LuaTable).entries;
 }
@@ -102,7 +107,7 @@ export function represent(type: LuaType): string {
 	// 	return "~" + reprC;
 	// }
 
-	return "unknown`"+type+"`type";
+	return "unknown`"+type+"`type"; // XXX: almost sure this is used somewhere so it can't throw until over there is fixed
 }
 
 /**
@@ -110,60 +115,71 @@ export function represent(type: LuaType): string {
  * 
  * possible unexpected result: ```'error`'+repr+'`type'```
  * 
- * @throws `SyntaxError`
+ * @throws `SyntaxError`, `TypeError`
  */
 export function parse(repr: string): LuaType {
 	repr = repr.trim();
-	if ('nil' === repr || 'number' === repr || 'boolean' === repr || 'string' === repr )
+	if ('nil' === repr || 'number' === repr || 'boolean' === repr || 'string' === repr)
 		return repr;
 	const character = repr.charAt(0);
 
+	// handles "(type_repr)"
 	if ("(" === character && ")" === repr.charAt(repr.length-1)) {
 		const [start, end] = delimitSubstring(repr, "(", ")");
 		if (repr.length-1 === end)
 			return parse(repr.substring(start, end));
 	}
 
+	// handles "type_repr_a | type_repr_b"
 	if (repr.includes("|")) {
 		const list = splitCarefully(repr, "|");
 		if (1 < list.length)
 			return list.map(parse).reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!);
 	}
 
+	// // handles "type_repr_a & type_repr_b"
 	// if (repr.includes("&")) {
 	// 	const list = splitCarefully(repr, "&");
 	// 	if (1 < list.length)
 	// 		return list.map(parse).reduce((acc, cur) => acc ? { and: [acc, cur] } : cur, null!);
 	// }
 
+	// // handles "~type_repr"
 	// if ("~" === character) {
 	// 	return { not: parse(repr.substr(1)) };
 	// }
 
+	// handles "{ key: type_repr_a, type_repr_b ... }"
 	if ("{" === character && "}" === repr.charAt(repr.length-1)) {
 		const inner = splitCarefully(repr.substr(1, repr.length-2), ",");
+		let keyCounting = 1;
 		return {
 			entries: Object.fromEntries(inner
 				.map(it => {
-					const co = it.indexOf(":");
-					const key = it.substring(0, co).trim();
-					const type = parse(it.substring(co + 1));
-					return [key, type];
+					const co = it.indexOf(":"); // XXX: no! it's not ok! would work with a splitCarefully...
+					if (-1 < co) {
+						const key = it.substring(0, co).trim();
+						const type = parse(it.substring(co + 1));
+						return [key, type];
+					} else return [keyCounting++, parse(it)];
 				})
 			),
 		};
 	}
 
+	// handles "[type_repr_a, type_repr_b]"
 	if ("[" === character && "]" === repr.charAt(repr.length-1)) {
 		const inner = splitCarefully(repr.substr(1, repr.length-2), ",");
 		return inner.map(parse);
 	}
 
+	// handles "(param: type_repr, ...) -> type_repr"
 	if (repr.includes("->")) {
 		const [paramStart, paramEnd] = delimitSubstring(repr, "(", ")");
-		const [retStart, retEnd] = delimitSubstring(repr.substr(paramEnd), "[", "]");
-
 		const params = splitCarefully(repr.substring(paramStart, paramEnd), ",");
+
+		const arrow = repr.substr(paramEnd).indexOf("->");
+		const rets = parse(repr.substr(paramEnd + arrow + 2));
 
 		return {
 			parameters: !params[0] ? [] : params
@@ -173,11 +189,11 @@ export function parse(repr: string): LuaType {
 					const type = parse(it.substring(co + 1));
 					return { name, type };
 				}),
-			return: parse("[" + repr.substring(paramEnd+retStart, paramEnd+retEnd) + "]"),
+			return: Array.isArray(rets) && 1 === rets.length ? rets[0] : rets, // ['type'] becomes 'type'
 		};
 	}
 
-	return 'error`'+repr+'`type' as LuaType;
+	throw new TypeError(`'${repr}' is not a recognized type representation`);
 }
 
 /**
@@ -253,5 +269,5 @@ export function resolve(node: aug.Node): LuaType {
 			break;
 		}
 	}
-	return "type`"+node.type as LuaType;
+	return "type`"+node.type as LuaType; // XXX: should throw `Unimplemented` or equivalent
 }

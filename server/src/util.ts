@@ -1,6 +1,8 @@
 import { ast } from 'pico8parse';
 import { Position, Range, TextDocument } from 'vscode-languageserver-textdocument';
 
+import { LuaDoc, LuaType, represent } from './document/typing';
+
 /**
  * @used `document > explore.ts > ...`
  */
@@ -71,6 +73,8 @@ export function findWordRange(document: TextDocument, position: Position): Range
  * 
  * @returns `[start, end]`
  * 
+ * @throws `SyntaxError`
+ * 
  * @example delimitSubstring("(a, b, c) -> [(d) -> nil]", "(", ")") === [1, 8]
  * 
  * @used `document > typing.ts > parse()`
@@ -108,6 +112,8 @@ export function delimitSubstring(str: string, open: string, close: string) {
  * 
  * fails if `delimitSubstring` fails, returns undefined
  * 
+ * @throws `SyntaxError`
+ * 
  * @example splitCarefully("{ a: string, b: boolean }, number") === ["{ a: string, b: boolean }", " c: number"]
  * 
  * @used `document > typing.ts > parse()`
@@ -129,4 +135,43 @@ export function splitCarefully(str: string, sep: string) {
 	}
 	r.push(str.substr(l).trim());
 	return r;
+}
+
+/**
+ * XXX: if anyone can get it to display in both the right color and font...
+ * 
+ * @used `documents.ts > Document{} > handleOnHover()`
+ */
+export function representVariableHover(tag: string, name: string, type: LuaType, doc?: LuaDoc) {
+	// const repr = represent(type).replace(
+	// 	/(->)|\b([^,:]+)(?=:)|(nil|number|boolean|string)/g,
+	// 	(substr, arrow, ident, type) => {
+	// 		if (arrow) return `<span style="color:#569CD6;">${arrow}</span>`;
+	// 		if (ident) return `<span style="color:#9CDCFE;">${ident}</span>`;
+	// 		if (type) return `<span style="color:#4EC9B0;">${type}</span>`;
+	// 		return substr;
+	// 	}
+	// );
+	// const ident = `<span style="color:#9CDCFE;">${name}</span>`;
+	// const info = `<span style="color:#C586C0;">${tag}</span>`;
+
+	// return [
+	// 	`(${info}) ${ident}: ${repr}`,
+	// 	...(!doc ? [] : [
+	// 		" ",
+	// 		"---",
+	// 		doc,
+	// 	]),
+	// ].join("\r\n");
+
+	return [
+		"```typescript", // will at least get _some_ of it right...
+		`(${tag}) ${name}: ${represent(type)}`,
+		"```",
+		...(!doc ? [] : [
+			" ",
+			"---",
+			doc.text,
+		]),
+	].join("\n");
 }

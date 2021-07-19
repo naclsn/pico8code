@@ -3,9 +3,8 @@ import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, Te
 import { Position, Range, TextDocument } from 'vscode-languageserver-textdocument';
 
 import { SelfExplore } from './document/explore';
-import { represent } from './document/typing';
 import { SettingsManager } from './settings';
-import { findWordRange, rangeContains } from './util';
+import { findWordRange, rangeContains, representVariableHover } from './util';
 
 const parseOptions: Partial<ParseOptions> = {
 	luaVersion: 'PICO-8-0.2.1', // XXX: from option or from p8 file header
@@ -49,12 +48,7 @@ export class Document extends SelfExplore {
 			contents: {
 				kind: 'markdown',
 				value: [
-					`(${found.scopeTag}) ${found.name}: ${represent(found.type)}`,
-					...(!found.doc ? [] : [
-						" ",
-						"---",
-						found.doc,
-					]),
+					representVariableHover(found.scopeTag, found.name, found.type, found.doc),
 					...(!found.info ?  [] : [
 						" ",
 						"---",
@@ -62,8 +56,8 @@ export class Document extends SelfExplore {
 						...found.info,
 						"```",
 					]),
-				].join("\r\n"),
-			}
+				].join("\n"),
+			},
 		};
 	}
 

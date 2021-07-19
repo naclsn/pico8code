@@ -3,7 +3,7 @@ import { Diagnostic, DiagnosticSeverity, DocumentSymbol, SymbolKind, SymbolTag }
 import { Range } from 'vscode-languageserver-textdocument';
 
 import { aug } from './augmented';
-import { LuaType, resolve, LuaScope } from './typing';
+import { LuaType, resolve, LuaScope, LuaDoc, parse } from './typing';
 import { locToRange } from '../util';
 
 /** @thanks https://stackoverflow.com/a/64469734/13196480 */
@@ -46,8 +46,23 @@ export class SelfExplore {
 	private docLineMap: { [endLine: number]: {
 		range: Range,
 		raw: string,
-		value: string,
-	} } = {};
+		value: LuaDoc,
+	} | undefined } = {};
+
+	private processDoc(raw: string): LuaDoc {
+		const lines = raw.split(/\r?\n/g);
+
+		let type: LuaType | undefined;
+		try {
+			type = parse(lines[0]);
+			lines.shift();
+		} catch { type = undefined; }
+
+		// XXX: more? (references to function params, table keys, links to other names...)
+		const text = lines.map(it => it.trim()).join("\n").trim();
+
+		return { type, text };
+	}
 
 	/**
 	 * gather every long-string comments and map them by _ending_ line number
@@ -66,7 +81,7 @@ export class SelfExplore {
 				this.docLineMap[range.end.line] = {
 					range,
 					raw: it.rawInterrupted ?? it.raw,
-					value: it.value,
+					value: this.processDoc(it.value),
 				};
 			}
 		});
@@ -220,7 +235,7 @@ export class SelfExplore {
 		range: Range,
 		name: string,
 		type: LuaType,
-		doc?: string,
+		doc?: LuaDoc,
 		/*-*/scopeTag: string,
 		/*-*/info?: string[],
 	} } = {};

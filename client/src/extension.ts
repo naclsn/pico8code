@@ -1,12 +1,6 @@
 import * as path from 'path';
 import { workspace, ExtensionContext } from 'vscode';
-
-import {
-	LanguageClient,
-	LanguageClientOptions,
-	ServerOptions,
-	TransportKind,
-} from 'vscode-languageclient/node';
+import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
 
 let client: LanguageClient;
 
@@ -25,6 +19,7 @@ export function activate(context: ExtensionContext) {
 			// Notify the server about file changes to '.pico8rc files contained in the workspace
 			fileEvents: workspace.createFileSystemWatcher('**/.pico8rc'),
 		},
+		markdown: { isTrusted: true },
 	};
 
 	client = new LanguageClient(
