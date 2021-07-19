@@ -1,13 +1,14 @@
 import { parse, Options as ParseOptions, SyntaxError as ParseError } from 'pico8parse';
 import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent } from 'vscode-languageserver';
-import { Range } from 'vscode-languageserver-textdocument';
+import { Position, Range, TextDocument } from 'vscode-languageserver-textdocument';
+
 import { SelfExplore } from './document/explore';
 import { represent } from './document/typing';
-import { TextDocument } from 'vscode-languageserver-textdocument';
 import { SettingsManager } from './settings';
+import { findWordRange, rangeContains } from './util';
 
 const parseOptions: Partial<ParseOptions> = {
-	luaVersion: 'PICO-8-0.2.1',
+	luaVersion: 'PICO-8-0.2.1', // XXX: from option or from p8 file header
 	locations: true,
 };
 
@@ -17,12 +18,12 @@ export class Document extends SelfExplore {
 		super();
 	}
 
-	onContentUpdate(textDocument: TextDocument) {
+	handleOnDidChangeContent(textDocument: TextDocument) {
 		try {
-			console.log("Parsing document");
-			this.clear();
+			console.log("======= Parsing document =======");
+			this.reset();
 			this.ast = parse(textDocument.getText(), parseOptions);
-			this.updateSymbols();
+			this.explore();
 		} catch (err) {
 			if (err instanceof ParseError) {
 				const line = err.line-1;
@@ -39,17 +40,14 @@ export class Document extends SelfExplore {
 		return this.diagnostics;
 	}
 
-	onHover(range: Range): Hover | null {
-		const index = `:${range.start.line}:${range.start.character}`;
-		const found = this.ranges[index];
-		// console.log("================" + index);
-		// console.log(found);
+	handleOnHover(range: Range): Hover | null {
+		const found = this.findVariable(range.start);
 		if (!found) return null;
 		return {
 			contents: {
 				kind: 'markdown',
 				value: [
-					`(${found.scope}) ${found.name}: ${represent(found.type)}`,
+					`(${found.scopeTag}) ${found.name}: ${represent(found.type)}`,
 					"```json",
 					JSON.stringify(found.info, (k, v) => 'augValue' != k ? v : '[Circular]', 2),
 					"```",
@@ -58,25 +56,25 @@ export class Document extends SelfExplore {
 		};
 	}
 
-	onDocumentSymbol() {
-		//console.log("Serving symbols");
+	handleOnDocumentSymbol() {
 		return this.symbols;
 	}
 
-	private updateSymbols() {
-		//console.log("Updating symbols");
-		//this.symbols = [];
-		//explore[this.ast.type]?.(this.symbols, this.ast);
+	private findVariable(position: Position) {
+		const it = this.lutVariables[`:${position.line}:${position.character}`];
+		if (it) return it;
+	}
 
-		//console.log("Building scope");
-		// const settings = this.manager.settings.get(this.uri);
-		// console.log("Pre-defined globals:");
-		// console.log(settings?.parse.preDefinedGlobals);
-		this.explore();
-		//console.dir(this.globalScope, { depth: 42 });
-
-		//console.log("Found ranges");
-		//console.dir(this.ranges, { depth: 42 });
+	private findScope(position: Position) {
+		// the scope LUT is built in order of appearance:
+		// parents scopes always come first; this aims at
+		// finding the smallest scope containing the `position`,
+		// hence the search backward
+		for (let k = this.lutScopes.length-1; -1 < k; k--) {
+			const it = this.lutScopes[k];
+			if (rangeContains(it.range, position))
+				return it;
+		}
 	}
 
 }
@@ -91,6 +89,18 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 		this.cache = new Map();
 	}
 
+	/**
+	 * listening on a connection will overwrite the following handlers on a connection:
+	 * 
+	 * from `TextDocuments<>`:
+	 * 
+	 * `onDidOpenTextDocument`, `onDidChangeTextDocument`, `onDidCloseTextDocument`,
+	 * `onWillSaveTextDocument`, `onWillSaveTextDocumentWaitUntil` and `onDidSaveTextDocument`
+	 * 
+	 * from `DocumentsManager`:
+	 * 
+	 * `onHover`, `onDocumentSymbol` [, `onCompletion` and `onCompletionResolve` (not yet)]
+	 */
 	listen(connection: Connection) {
 		super.listen(connection);
 		this.connection = connection;
@@ -103,7 +113,7 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 	private handleOnDidChangeContent(change: TextDocumentChangeEvent<TextDocument>) {
 		const uri = change.document.uri;
 		const document = this.cache.get(uri) ?? new Document(uri, this);
-		const diagnostics = document.onContentUpdate(change.document);
+		const diagnostics = document.handleOnDidChangeContent(change.document);
 
 		this.cache.set(uri, document);
 		this.connection?.sendDiagnostics({ diagnostics, uri });
@@ -114,37 +124,20 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 		const uri = textDocumentPosition.textDocument.uri;
 		console.log("Hovering: " + JSON.stringify(position));
 
+		// the one instance of the class above (has the AST)
 		const document = this.cache.get(uri);
 		if (!document) return null;
 
-		// range of the hovered line
-		const range = {
-			start: { ...position },
-			end: { ...position },
-		};
-		range.end.character = range.start.character = 0;
-		range.end.line = range.start.line + 1;
+		// the one from the languageserver module (has the text)
+		const textDocument = this.get(uri);
+		if (!textDocument) return null;
 
-		// extract the line from the document
-		const line = this.get(uri)?.getText(range);
-		if (!line) return null;
-
-		// extract the word from the line
-		let start = position.character;
-		let end = start;
-		while (-1 < start && !" ()[],;.:<=>+-*/^\\~!&|'\"@%$#\n\t\r".includes(line[start])) start--;
-		while (end < line.length && !" ()[],;.:<=>+-*/^\\~!&|'\"@%$#\n\t\r".includes(line[end])) end++;
-
-		// range of the hovered word
-		range.start.character = start+1;
-		range.end.character = end;
-
-		return document.onHover(range);
+		return document.handleOnHover(findWordRange(textDocument, position));
 	}
 
 	private handleOnDocumentSymbol(textDocumentIdentifier: DocumentSymbolParams) {
 		const document = this.cache.get(textDocumentIdentifier.textDocument.uri);
-		return document?.onDocumentSymbol();
+		return document?.handleOnDocumentSymbol();
 	}
 
 }

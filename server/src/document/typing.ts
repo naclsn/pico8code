@@ -1,4 +1,7 @@
+import { Range } from 'vscode-languageserver-textdocument';
+
 import { aug } from './augmented';
+import { delimitSubstring, splitCarefully } from '../util';
 
 export type LuaNil = 'nil'
 export type LuaNumber = 'number'
@@ -19,6 +22,7 @@ export type LuaType
 	| LuaNumber
 	| LuaBoolean
 	| LuaString
+	//| LuaVararg
 	| LuaTable
 	| LuaFunction
 	| LuaType[]
@@ -26,13 +30,32 @@ export type LuaType
 	//| { and: [LuaType, LuaType] }
 	//| { not: LuaType }
 
+export type LuaVariable = {
+	// every expression that were assigned to it, last in first
+	values: aug.Expression[]
+	// corresponding scopes
+	scopes: LuaScope[]
+}
+
+export type LuaScope = {
+	labels: Record<string, Range | undefined>,
+	variables: Record<string, LuaVariable | undefined>,
+	tag: string,
+}
+
 export function isLuaTable(type: LuaType): type is LuaTable {
 	return !!(type as LuaTable).entries;
 }
+
 export function isLuaFunction(type: LuaType): type is LuaFunction {
 	return !!(type as LuaFunction).return;
 }
 
+/**
+ * ie. `toString()`
+ * 
+ * possible unexpected result: ```"unknown`"+type+"`type"```
+ */
 export function represent(type: LuaType): string {
 	if ('string' === typeof type) return type;
 
@@ -59,97 +82,65 @@ export function represent(type: LuaType): string {
 		return `{ ${entries} }`;
 	}
 
-	// somewhat quite wrong if any "&" is added
-	const [a, b] = type.or;
-	return represent(a) + " | " + represent(b);
+	if (type.or) {
+		const [a, b] = type.or;
+		const reprA = represent(a);
+		const reprB = represent(b);
+		return reprA + " | " + reprB;
+	}
+
+	// if (type.and) {
+	// 	const [a, b] = type.and;
+	// 	const reprA = !a.or ? represent(a) : `(${represent(a)})`;
+	// 	const reprB = !b.or ? represent(b) : `(${represent(b)})`;
+	// 	return reprA + " & " + reprB;
+	// }
+
+	// if (type.not) {
+	// 	const c = type.not;
+	// 	const reprC = !c.or && !c.and ? represent(c) : `(${represent(c)})`;
+	// 	return "~" + reprC;
+	// }
+
+	return "unknown`"+type+"`type";
 }
 
+/**
+ * ie. `fromString()`
+ * 
+ * possible unexpected result: ```'error`'+repr+'`type'```
+ * 
+ * @throws `SyntaxError`
+ */
 export function parse(repr: string): LuaType {
-	/**
-	 * find the first substring of `str` that is enclosed
-	 * by the delimiters `open` and `close` (eg. "[" and "]")
-	 * 
-	 * `open` and `close` must be different and 1 character
-	 * in length
-	 * 
-	 * the returned substring excludes the delimiters
-	 * (undefined if none where found)
-	 * 
-	 * fails if `close` is present before `open` in `str`
-	 * (ie. aborts and returns undefined)
-	 * 
-	 * @returns `[start, end]`
-	 * 
-	 * @example delimitSubstring("(a, b, c) -> [(d) -> nil]", "(", ")") === [1, 8]
-	 */
-	function delimitSubstring(str: string, open: string, close: string) {
-		let s = 0;
-		let n = 0;
-		for (let k = 0; k < str.length; k++) {
-			const c = str[k];
-			if (c === open) {
-				if (0 === n) s = k+1;
-				n++;
-			} else if (c === close) {
-				n--;
-				if (0 === n) return [s, k] as [start: number, end: number];
-				if (n < 0) break;
-			}
-		}
-		throw new SyntaxError(n < 0
-			? `No matching ${open} for closing ${close}`
-			: `No matching ${close} for opening ${open}`
-		);
-	}
-
-	/**
-	 * split `str` on `sep` in a list of substring while respecting
-	 * pairs of delimiters (eg. doesn't split on "," within "[]")
-	 * 
-	 * `sep` must be 1 character in length
-	 * 
-	 * the respected delimiters are the following pairs:
-	 * "()", "[]", "{}"
-	 * 
-	 * the returned substrings are trimmed
-	 * 
-	 * fails if `delimitSubstring` fails, returns undefined
-	 * 
-	 * @example splitCarefully("{ a: string, b: boolean }, number") === ["{ a: string, b: boolean }", " c: number"]
-	 */
-	function splitCarefully(str: string, sep: string) {
-		const r: string[] = [];
-		let l = 0;
-		const pairs = "()[]{}";
-		for (let k = 0; k < str.length; k++) {
-			const c = str[k];
-			const f = pairs.indexOf(c);
-			if (-1 < f) {
-				k+= delimitSubstring(str.substr(k), pairs[f], pairs[f+1])[1];
-			} else if (c === sep) {
-				r.push(str.substring(l, k).trim());
-				l = k+1;
-			}
-		}
-		r.push(str.substr(l).trim());
-		return r;
-	}
-
 	repr = repr.trim();
 	if ('nil' === repr || 'number' === repr || 'boolean' === repr || 'string' === repr )
 		return repr;
+	const character = repr.charAt(0);
+
+	if ("(" === character && ")" === repr.charAt(repr.length-1)) {
+		const [start, end] = delimitSubstring(repr, "(", ")");
+		if (repr.length-1 === end)
+			return parse(repr.substring(start, end));
+	}
 
 	if (repr.includes("|")) {
 		const list = splitCarefully(repr, "|");
-		return list.map(parse).reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!);
+		if (1 < list.length)
+			return list.map(parse).reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!);
 	}
 
 	// if (repr.includes("&")) {
 	// 	const list = splitCarefully(repr, "&");
-	// 	return list.map(parse).reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!);
+	// 	if (1 < list.length)
+	// 		return list.map(parse).reduce((acc, cur) => acc ? { and: [acc, cur] } : cur, null!);
 	// }
 
-	if ("{" === repr.charAt(0) && "}" === repr.charAt(repr.length-1)) {
+	// if ("~" === character) {
+	// 	return { not: parse(repr.substr(1)) };
+	// }
+
+	if ("{" === character && "}" === repr.charAt(repr.length-1)) {
 		const inner = splitCarefully(repr.substr(1, repr.length-2), ",");
 		return {
 			entries: Object.fromEntries(inner
@@ -163,7 +154,7 @@ export function parse(repr: string): LuaType {
 		};
 	}
 
-	if ("[" === repr.charAt(0) && "]" === repr.charAt(repr.length-1)) {
+	if ("[" === character && "]" === repr.charAt(repr.length-1)) {
 		const inner = splitCarefully(repr.substr(1, repr.length-2), ",");
 		return inner.map(parse);
 	}
@@ -186,9 +177,13 @@ export function parse(repr: string): LuaType {
 		};
 	}
 
-	return 'error`'+repr+'`type' as any;
+	return 'error`'+repr+'`type' as LuaType;
 }
 
+/**
+ * finds the right `LuaType` by inspecting an augmented `node`
+ * (eg. through its `augValue` or `augValues`)
+ */
 export function resolve(node: aug.Node): LuaType {
 	switch (node.type) {
 		case 'Identifier': {
@@ -201,7 +196,7 @@ export function resolve(node: aug.Node): LuaType {
 		case 'NumericLiteral': return 'number';
 		case 'StringLiteral': return 'string';
 		case 'BooleanLiteral': return 'boolean';
-		case 'VarargLiteral': return '...' as LuaType;
+		case 'VarargLiteral': return '...' as LuaType; // XXX: to account for
 
 		case 'TableConstructorExpression': return { entries: {} };
 
