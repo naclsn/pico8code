@@ -86,13 +86,10 @@ export class Document extends SelfExplore {
 			const it = found.scope.variables[label]!;
 			list.push({
 				label,
-				documentation: it.values
+				documentation: it.ranges
 					.slice()
 					.reverse()
-					.map(it => {
-						const range = locToRange(it.loc);
-						return `${it.type} (${range.start.line}:${range.start.character})`;
-					})
+					.map((_it, k) => `${represent(it.types[k])} (${_it.start.line}:${_it.start.character} in ${it.scopes[k].tag})`)
 					.join(", "),
 				data: {
 					uri: this.uri,
@@ -162,6 +159,11 @@ export class Document extends SelfExplore {
 			if (rangeContains(it.range, position))
 				return it;
 		}
+		// XXX: the pico8parse stops the main 'Chunk''s scope
+		// on the last _meaningful_ character, which means
+		// that following empty lines are not in any scope ;-;
+		return { scope: this.globalScope, range: undefined };
+		// `range` undefined: ie. whole file (for TextDocument.getText)
 	}
 //#endregion
 

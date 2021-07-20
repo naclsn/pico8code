@@ -1,6 +1,7 @@
 /* eslint-disable @typescript-eslint/no-namespace */
 /* eslint-disable @typescript-eslint/no-empty-interface */
 import { ast } from 'pico8parse';
+import { LuaFunction, LuaTable, LuaType } from './typing';
 
 export namespace aug {
 
@@ -33,12 +34,11 @@ export namespace aug {
 	export interface AssignmentOperatorStatement extends ast.AssignmentOperatorStatement { }
 
 	export interface CallStatement extends ast.CallStatement {
-		augValues?: Expression[];
 	}
 
 	export interface FunctionDeclaration extends ast.FunctionDeclaration {
+		augType?: LuaType; // should be LuaFunction
 		augReturns?: ReturnStatement[];
-		augValue?: Expression;
 	}
 
 	export interface ForNumericStatement extends ast.ForNumericStatement { }
@@ -48,27 +48,27 @@ export namespace aug {
 	export interface Chunk extends ast.Chunk { }
 
 	export interface Identifier extends ast.Identifier {
-		augValue?: Expression;
+		augType?: LuaType;
 	}
 
 	export interface StringLiteral extends ast.StringLiteral {
-		augValue?: Expression;
+		augType?: LuaType; // should be 'string'
 	}
 
 	export interface NumericLiteral extends ast.NumericLiteral {
-		augValue?: Expression;
+		augType?: LuaType; // should be 'number'
 	}
 
 	export interface BooleanLiteral extends ast.BooleanLiteral {
-		augValue?: Expression;
+		augType?: LuaType; // should be 'boolean'
 	}
 
 	export interface NilLiteral extends ast.NilLiteral {
-		augValue?: Expression;
+		augType?: LuaType; // should be 'nil'
 	}
 
 	export interface VarargLiteral extends ast.VarargLiteral {
-		augValue?: Expression;
+		augType?: LuaType; // TODO
 	}
 
 	export interface TableKey extends ast.TableKey { }
@@ -77,34 +77,40 @@ export namespace aug {
 
 	export interface TableValue extends ast.TableValue { }
 
-	export interface TableConstructorExpression extends ast.TableConstructorExpression { }
+	export interface TableConstructorExpression extends ast.TableConstructorExpression {
+		augType?: LuaType; // should be LuaTable // TODO
+	}
 
 	export interface UnaryExpression extends ast.UnaryExpression {
-		augValue?: Expression;
+		augType?: LuaType; // should be (can only be) 'number' 'boolean'
 	}
 
 	export interface BinaryExpression extends ast.BinaryExpression {
-		augValue?: Expression;
+		augType?: LuaType; // should be (can only be) 'number' 'boolean' 'string'
 	}
 
 	export interface LogicalExpression extends ast.LogicalExpression {
-		augValue?: Expression;
+		augType?: LuaType;
 	}
 
-	export interface MemberExpression extends ast.MemberExpression { }
+	export interface MemberExpression extends ast.MemberExpression {
+		augType?: LuaType; // TODO
+	}
 
-	export interface IndexExpression extends ast.IndexExpression { }
+	export interface IndexExpression extends ast.IndexExpression {
+		augType?: LuaType; // TODO
+	}
 
 	export interface CallExpression extends ast.CallExpression {
-		augValues?: Expression[];
+		augType?: LuaType; // _could_ be LuaType[]
 	}
 
 	export interface TableCallExpression extends ast.TableCallExpression {
-		augValues?: Expression[];
+		augType?: LuaType; // _could_ be LuaType[]
 	}
 
 	export interface StringCallExpression extends ast.StringCallExpression {
-		augValues?: Expression[];
+		augType?: LuaType; // _could_ be LuaType[]
 	}
 
 	export interface Comment extends ast.Comment { }

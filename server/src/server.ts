@@ -1,12 +1,4 @@
-import {
-	createConnection,
-	ProposedFeatures,
-	DidChangeConfigurationNotification,
-	CompletionItem,
-	CompletionItemKind,
-	TextDocumentSyncKind,
-	InitializeResult,
-} from 'vscode-languageserver/node';
+import { createConnection, ProposedFeatures, DidChangeConfigurationNotification, TextDocumentSyncKind, InitializeResult } from 'vscode-languageserver/node';
 
 import { SettingsManager } from './settings';
 import { DocumentsManager } from './documents';
@@ -22,22 +14,13 @@ connection.onInitialize(params => {
 
 	// Does the client support the `workspace/configuration` request?
 	// If not, we fall back using global settings.
-	settings.hasConfigurationCapability = !!(
-		capabilities.workspace && !!capabilities.workspace.configuration
-	);
-	settings.hasWorkspaceFolderCapability = !!(
-		capabilities.workspace && !!capabilities.workspace.workspaceFolders
-	);
-	settings.hasDiagnosticRelatedInformationCapability = !!(
-		capabilities.textDocument &&
-		capabilities.textDocument.publishDiagnostics &&
-		capabilities.textDocument.publishDiagnostics.relatedInformation
-	);
+	settings.hasConfigurationCapability = !!capabilities.workspace?.configuration;
+	settings.hasWorkspaceFolderCapability = !!capabilities.workspace?.workspaceFolders;
+	settings.hasDiagnosticRelatedInformationCapability = !!capabilities.textDocument?.publishDiagnostics?.relatedInformation;
 
 	const result: InitializeResult = {
 		capabilities: {
 			textDocumentSync: TextDocumentSyncKind.Incremental,
-			// Tell the client that this server supports code completion.
 			completionProvider: {
 				triggerCharacters: [ '.', ':' ],
 				resolveProvider: true,
@@ -48,9 +31,7 @@ connection.onInitialize(params => {
 	};
 	if (settings.hasWorkspaceFolderCapability) {
 		result.capabilities.workspace = {
-			workspaceFolders: {
-				supported: true,
-			},
+			workspaceFolders: { supported: true },
 		};
 	}
 	return result;

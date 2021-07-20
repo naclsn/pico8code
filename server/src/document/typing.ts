@@ -7,6 +7,7 @@ export type LuaNil = 'nil'
 export type LuaNumber = 'number'
 export type LuaBoolean = 'boolean'
 export type LuaString = 'string'
+//export type LuaVararg = '...'
 
 export type LuaTable = {
 	entries: { [key: string]: LuaType }
@@ -17,23 +18,25 @@ export type LuaFunction = {
 	return: LuaType,
 }
 
+//export type LuaTypeAlias = { alias: string, type: LuaType }
+
 export type LuaType
 	= LuaNil
 	| LuaNumber
 	| LuaBoolean
 	| LuaString
-	//| LuaVararg
+	//| LuaVararg // TODO: probably remove
 	| LuaTable
 	| LuaFunction
 	| LuaType[]
 	| { or: [LuaType, LuaType] }
 	//| { and: [LuaType, LuaType] }
 	//| { not: LuaType }
-	//| { alias: LuaType }
+	//| LuaTypeAlias
 
 export type LuaVariable = {
-	// every expression that were assigned to it, last in first
-	values: aug.Expression[],
+	// every type that were assigned to it, last in first
+	types: LuaType[],
 	// corresponding identifier range
 	ranges: Range[],
 	// corresponding scopes
@@ -51,13 +54,17 @@ export type LuaDoc = {
 	text: string,
 }
 
-export function isLuaTable(type: LuaType): type is LuaTable {
-	return !!(type as LuaTable).entries;
+export function isLuaTable(type?: LuaType): type is LuaTable {
+	return !!(type && (type as LuaTable).entries);
 }
 
-export function isLuaFunction(type: LuaType): type is LuaFunction {
-	return !!(type as LuaFunction).return;
+export function isLuaFunction(type?: LuaType): type is LuaFunction {
+	return !!(type && (type as LuaFunction).return);
 }
+
+// export function isLuaTypeAlias(type?: LuaType): type is LuaTypeAlias {
+// 	return !!(type && (type as LuaTypeAlias).alias);
+// }
 
 /**
  * ie. `toString()`
@@ -102,7 +109,7 @@ export function represent(type: LuaType): string {
 
 	if (isLuaFunction(type)) {
 		const param = type.parameters
-			.map(it => `${it.name}: ${it.type}`)
+			.map(it => `${it.name}: ${represent(it.type)}`)
 			.join(", ");
 		// add "()" around type such as "a | b" to avoid returning
 		// "() -> a | b" which is equivalent to "(() -> a) | b"
@@ -120,21 +127,21 @@ export function represent(type: LuaType): string {
 	}
 
 	if (Object.hasOwnProperty.call(type, 'or')) {
-		const [a, b] = type.or;
+		const [a, b] = (type as { or: [LuaType, LuaType] }).or;
 		const reprA = represent(a);
 		const reprB = represent(b);
 		return reprA + " | " + reprB;
 	}
 
-	// if (type.and) {
-	// 	const [a, b] = type.and;
+	// if (Object.hasOwnProperty.call(type, 'and')) {
+	// 	const [a, b] = (type as { and: [LuaType, LuaType] }).and;
 	// 	const reprA = Object.hasOwnProperty.call(a, 'or') ? `(${represent(a)})` : represent(a);
 	// 	const reprB = Object.hasOwnProperty.call(b, 'or') ? `(${represent(b)})` : represent(b);
 	// 	return reprA + " & " + reprB;
 	// }
 
-	// if (type.not) {
-	// 	const c = type.not;
+	// if (Object.hasOwnProperty.call(type, 'not')) {
+	// 	const c = (type as { not: [LuaType, LuaType] }).not;
 	// 	const retComplex = Object.hasOwnProperty.call(c, 'or') || Object.hasOwnProperty.call(c, 'and');
 	// 	const reprC = retComplex ? `(${represent(c)})` : represent(c);
 	// 	return "~" + reprC;
@@ -227,82 +234,6 @@ export function parse(repr: string): LuaType {
 	}
 
 	throw new TypeError(`'${repr}' is not a recognized type representation`);
-}
-
-/**
- * finds the right `LuaType` by inspecting an augmented `node`
- * (eg. through its `augValue` or `augValues`)
- */
-export function resolve(node: aug.Node): LuaType {
-	switch (node.type) {
-		case 'Identifier': {
-			if (node.augValue)
-				return resolve(node.augValue);
-			else return 'nil';
-		}
-
-		case 'NilLiteral': return 'nil';
-		case 'NumericLiteral': return 'number';
-		case 'StringLiteral': return 'string';
-		case 'BooleanLiteral': return 'boolean';
-		case 'VarargLiteral': return '...' as LuaType; // XXX: to account for
-
-		case 'TableConstructorExpression': return { entries: {} };
-
-		case 'FunctionDeclaration': {
-			const parameters = node.parameters.map(it => ({
-				name: 'Identifier' === it.type ? it.name : "...",
-				type: resolve(it),
-			}));
-			// join each possible return as a union; left branching ie. (a | b) | c
-			const ret = (node.augReturns ?? []).map(resolve).reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!) ?? 'nil';
-			return { parameters, return: ret };
-		}
-		case 'ReturnStatement': return node.arguments.map(resolve);
-
-		case 'BinaryExpression': {
-			switch (node.operator) {
-				case '+':
-				case '-':
-				case '*':
-				case '/':
-				case '^':
-				case '\\':
-				case '&':
-				case '|':
-				case '^^':
-					return 'number';
-				case '==':
-				case '<':
-				case '>':
-				case '<=':
-				case '>=':
-				case '!=':
-				case '~=':
-					return 'boolean';
-			}
-			break;
-		}
-		case 'UnaryExpression': {
-			if ('not' === node.operator) return 'boolean';
-			else return 'number';
-		}
-		case 'LogicalExpression': {
-			const tya = resolve(node.left);
-			const tyb = resolve(node.right);
-			if ('and' === node.operator) {
-				return 'nil' === tya ? 'nil'
-					: 'boolean' === tya ? tyb + " | true" as LuaType // XXX: why what do that here!?
-					: tyb;
-			} else if ('or' === node.operator) {
-				return 'nil' === tya ? tyb
-					: 'boolean' === tya ? tyb + " | false" as LuaType // XXX: why what do that here!?
-					: tya;
-			}
-			break;
-		}
-	}
-	return "type`"+node.type as LuaType; // XXX: should throw `Unimplemented` or equivalent
 }
 
 /**

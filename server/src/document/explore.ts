@@ -3,8 +3,8 @@ import { Diagnostic, DiagnosticSeverity, DocumentSymbol, SymbolKind, SymbolTag }
 import { Range } from 'vscode-languageserver-textdocument';
 
 import { aug } from './augmented';
-import { LuaType, resolve, LuaScope, LuaDoc, parse } from './typing';
-import { locToRange } from '../util';
+import { LuaType, LuaScope, LuaDoc, parse, isLuaFunction, represent } from './typing';
+import { locToRange, resolveListOfTypes } from '../util';
 
 /** @thanks https://stackoverflow.com/a/64469734/13196480 */
 type FindByTType<Union, TType> = Union extends { type: TType } ? Union : never;
@@ -174,7 +174,7 @@ export class SelfExplore {
 //#region scopes
 	protected lutScopes: LUTScopes = [];
 
-	private globalScope: LuaScope = { tag: "global", labels: {}, variables: {}, };
+	protected globalScope: LuaScope = { tag: "global", labels: {}, variables: {}, };
 	private currentScope!: LuaScope;
 
 	/**
@@ -212,15 +212,15 @@ export class SelfExplore {
 	 * 
 	 * @param scope scope to affect, defaults to current
 	 */
-	private variableDeclare(name: string, range: Range, value: aug.Expression, scope?: LuaScope) {
+	private variableDeclare(name: string, range: Range, type: LuaType, scope?: LuaScope) {
 		const theScope = scope ?? this.currentScope;
 		if (!Object.prototype.hasOwnProperty.call(theScope.variables, name)) {
 			theScope.variables[name] = {
-				values: [value],
+				types: [type],
 				ranges: [range],
 				scopes: [theScope],
 			};
-		} else throw new Error("How did we get here?\n" + `declare, name: ${name}, value: ${value.type}`);
+		} else throw new Error("How did we get here?\n" + `declare, name: ${name}, type: ${represent(type)}`);
 		// XXX: it was declared twice, that's how (eg. from two 'local's or a 'local' and a function param...)
 	}
 
@@ -229,13 +229,13 @@ export class SelfExplore {
 	 * 
 	 * @param scope scope to affect, defaults to current
 	 */
-	private variableUpdate(name: string, range: Range, value: aug.Expression, scope?: LuaScope) {
+	private variableUpdate(name: string, range: Range, type: LuaType, scope?: LuaScope) {
 		const variable = this.currentScope.variables[name];
 		if (variable) {
-			variable.values.unshift(value);
+			variable.types.unshift(type);
 			variable.ranges.unshift(range);
 			variable.scopes.unshift(scope ?? this.currentScope);
-		} else throw new Error("How did we get here?\n" + `update, name: ${name}, value: ${value.type}`);
+		} else throw new Error("How did we get here?\n" + `update, name: ${name}, type: ${represent(type)}`);
 	}
 
 	/**
@@ -252,10 +252,10 @@ export class SelfExplore {
 		this.lutVariables[`:${range.start.line}:${range.start.character}`] = {
 			range,
 			name,
-			type: variable ? resolve(variable.values[0]) : 'nil', // XXX: for now '0' ie. 'latest'
+			type: variable ? variable.types[0] : 'nil', // XXX: for now '0' ie. 'latest'
 			doc,
 			scopeTag: variable?.scopes[0].tag ?? this.currentScope.tag,
-			info: variable?.values.map((it, k) => `(${variable.scopes[k].tag}) ${it.type}`),
+			info: variable?.types.map((it, k) => `(${variable.scopes[k].tag}) ${represent(it)}`),
 		};
 		return range;
 	}
@@ -300,8 +300,8 @@ export class SelfExplore {
 
 			Identifier: (node) => {
 				const augmented = node as aug.Identifier;
-				if (!augmented.augValue)
-					augmented.augValue = this.variableLookup(augmented.name)?.values[0];
+				if (!augmented.augType)
+					augmented.augType = this.variableLookup(node.name)?.types[0];
 
 				this.variableLocate(node.name, locToRange(node.loc));
 			},
@@ -309,31 +309,58 @@ export class SelfExplore {
 			FunctionDeclaration: (node) => {
 				const range = locToRange(node.loc);
 
+				const doc = this.matchingDoc(range);
+				const overrideType = !!doc && isLuaFunction(doc.type) && doc.type;
+
 				// XXX: selectionRange and such will need the identifier part to be processed before (or at least some of it)
 				this.symbolEnter('Identifier' === node.identifier?.type ? node.identifier.name : "<anonymous>", SymbolKind.Function, range, range);
 					this.contextPush(node);
 						const previousScope = this.scopeFork(range, "function line " + node.loc?.start.line);
-							node.parameters.forEach(it => {
-								(it as aug.Identifier).augValue = { type: 'NilLiteral', value: null, raw: '' };
-								this.handlers[it.type](it as any);
+							const parameters = node.parameters.map((it, k) => {
+								const augmented = it as aug.Identifier | aug.VarargLiteral;
+								let name = "...";
+								if ('Identifier' === augmented.type) {
+									name = augmented.name;
+									// TODO: if already exist
+									this.variableDeclare(name, locToRange(node.loc), overrideType ? overrideType.parameters[k].type : 'nil'); // TODO: 'unknown' or something
+								}
+								this.handlers[augmented.type](augmented as any);
+								return {
+									name,
+									type: augmented.augType ?? 'nil',
+								};
 							});
 							node.body.forEach(it => this.handlers[it.type](it as any));
 						this.scopeRestore(previousScope);
 					this.contextPop('FunctionDeclaration');
-				this.symbolExit();
 
-				(node as aug.FunctionDeclaration).augValue = node;
-				if (node.identifier) {
-					if ('Identifier' === node.identifier.type) {
-						const augmented = node.identifier as aug.Identifier;
-						augmented.augValue = node as aug.FunctionDeclaration;
+					// TODO: this actually really should be done first
 
-						// TODO: if already exist
-						if (node.isLocal) this.variableDeclare(augmented.name, locToRange(augmented.loc), augmented.augValue);
-						else this.variableDeclare(augmented.name, locToRange(augmented.loc), augmented.augValue, this.globalScope);
+					const augmented = node as aug.FunctionDeclaration;
+
+					const ret = !augmented.augReturns
+						? 'nil'
+						: augmented.augReturns
+							.map(it => {
+								const list = resolveListOfTypes((it.arguments as aug.Expression[]).map(_it => _it.augType));
+								return 0 === list.length ? 'nil'
+									: 1 === list.length ? list[0]
+									: list;
+							})
+							// join each possible return as a union; left branching ie. (a | b) | c
+							.reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!);
+					const resolved = { parameters, return: ret };
+
+					augmented.augType = overrideType ? overrideType : resolved;
+					if (node.identifier) {
+						if ('Identifier' === node.identifier.type) {
+							// TODO: if already exist
+							if (node.isLocal) this.variableDeclare(node.identifier.name, locToRange(node.identifier.loc), augmented.augType);
+							else this.variableDeclare(node.identifier.name, locToRange(node.identifier.loc), augmented.augType, this.globalScope);
+						}
+						this.handlers[node.identifier.type](node.identifier as any);
 					}
-					this.handlers[node.identifier.type](node.identifier as any);
-				}
+				this.symbolExit();
 			},
 
 		//#region statements
@@ -410,124 +437,56 @@ export class SelfExplore {
 			},
 
 			LocalStatement: (node) => {
-				const types = node.init.flatMap(it => {
+				const typesFromExpressions = node.init.map(it => {
 					this.handlers[it.type](it as any);
-					const augmented = it as aug.Expression;
-					switch (augmented.type) {
-						case 'CallExpression':
-						case 'TableCallExpression':
-						case 'StringCallExpression':
-							return augmented.augValues ?? [];
-						case 'Identifier':
-						case 'NilLiteral':
-						case 'NumericLiteral':
-						case 'BooleanLiteral':
-						case 'StringLiteral':
-						case 'VarargLiteral':
-						case 'FunctionDeclaration':
-						case 'BinaryExpression':
-						case 'LogicalExpression':
-						case 'UnaryExpression':
-							return augmented.augValue ?? [];
-					}
+					return (it as aug.Expression).augType ?? 'nil';
 				});
-				node.variables.forEach((it, k) => {
-					const augmented = it as aug.Identifier;
-					augmented.augValue = types[k];
+				const types = resolveListOfTypes(typesFromExpressions);
 
-					// TODO: if already exist
-					this.variableDeclare(augmented.name, locToRange(augmented.loc), augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' });
-					this.handlers.Identifier(augmented);
+				node.variables.forEach((it, k) => {
+					const range = locToRange(it.loc);
+
+					this.symbolEnter(it.name, SymbolKind.Object, range, range);
+						// TODO: if already exist
+						this.variableDeclare(it.name, range, types[k] ?? 'nil');
+						this.handlers.Identifier(it);
+					this.symbolExit();
 				});
 			},
 
 			AssignmentStatement: (node) => {
-				const types = node.init.flatMap(it => {
+				const typesFromExpressions = node.init.map(it => {
 					this.handlers[it.type](it as any);
-					const augmented = it as aug.Expression;
-					switch (augmented.type) {
-						case 'CallExpression':
-						case 'TableCallExpression':
-						case 'StringCallExpression':
-							return augmented.augValues ?? [];
-						case 'Identifier':
-						case 'NilLiteral':
-						case 'NumericLiteral':
-						case 'BooleanLiteral':
-						case 'StringLiteral':
-						case 'VarargLiteral':
-						case 'FunctionDeclaration':
-						case 'BinaryExpression':
-						case 'LogicalExpression':
-						case 'UnaryExpression':
-							return augmented.augValue ?? [];
-					}
+					return (it as aug.Expression).augType ?? 'nil';
 				});
-				node.variables.forEach((it, k) => {
-					const augmented = it as aug.Identifier;
-					augmented.augValue = types[k];
+				const types = resolveListOfTypes(typesFromExpressions);
 
-					// if 'name' is visible from current scope
-					const variable = this.variableLookup(augmented.name);
-					if (variable) {
-						// update locally
-						this.variableUpdate(augmented.name, locToRange(augmented.loc), augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, variable.scopes[0]);
-						this.handlers.Identifier(augmented);
-					} else {
-						// declare globally
-						this.variableDeclare(augmented.name, locToRange(augmented.loc), augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, this.globalScope);
-						this.handlers.Identifier(augmented);
+				console.log(`${node.loc?.start.line}:${node.loc?.start.column} AssignmentStatement(${node.variables.length}* = ${node.init.length}*)`);
+				console.dir(typesFromExpressions, { depth: 42 });
+				console.dir(types, { depth: 42 });
+
+				node.variables.forEach((it, k) => {
+					const range = locToRange(it.loc);
+
+					if ('Identifier' === it.type) { // TODO
+						// if 'name' is visible from current scope
+						const variable = this.variableLookup(it.name);
+						if (variable) {
+							// update locally
+							this.variableUpdate(it.name, range, types[k] ?? 'nil', variable.scopes[0]);
+							this.handlers.Identifier(it);
+						} else {
+							this.symbolEnter(it.name, SymbolKind.Object, range, range);
+								// declare globally
+								this.variableDeclare(it.name, range, types[k] ?? 'nil', this.globalScope);
+								this.handlers.Identifier(it);
+							this.symbolExit();
+						}
 					}
 				});
 			},
 
-			AssignmentOperatorStatement: (node) => {
-				/*-
-					this should be handled knowing that:
-						- doesn't deal well with more than one init
-						- .. same with more than one variable
-						- never apply to other than 'number' type
-						- .. except for when more than one variable
-				 */
-				// every variables should exists, so this is handled like a LocalStatement
-				/*const types = node.init.flatMap(it => {
-					this.handlers[it.type](it as any);
-					const augmented = it as aug.Expression;
-					switch (augmented.type) {
-						case 'CallExpression':
-						case 'TableCallExpression':
-						case 'StringCallExpression':
-							return augmented.augValues ?? [];
-						case 'Identifier':
-						case 'NilLiteral':
-						case 'NumericLiteral':
-						case 'BooleanLiteral':
-						case 'StringLiteral':
-						case 'VarargLiteral':
-						case 'FunctionDeclaration':
-						case 'BinaryExpression':
-						case 'LogicalExpression':
-						case 'UnaryExpression':
-							return augmented.augValue ?? [];
-					}
-				});
-				node.variables.forEach((it, k) => {
-					const augmented = it as aug.Identifier;
-					augmented.augValue = types[k];
-
-					// 'name' should be visible from current scope
-					const variable = this.lookup(augmented.name);
-					if (variable) {
-						// handle locally
-						this.update(augmented.name, augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, variable.scopes[0]); // XXX: pushing undefined!
-						this.handlers.Identifier(augmented);
-					} else {
-						// handle globally
-						this.declare(augmented.name, augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, this.globalScope); // XXX: pushing undefined!
-						this.handlers.Identifier(augmented);
-					}
-				});*/
-			},
+			AssignmentOperatorStatement: (node) => { void 2; }, // TODO
 
 			CallStatement: (node) => {
 				this.contextPush(node);
@@ -589,29 +548,49 @@ export class SelfExplore {
 		//#endregion
 
 		//#region table
-			TableKey: (node) => { void 1; },
+			TableKey: (node) => { void 1; }, // TODO
 
-			TableKeyString: (node) => { void 1; },
+			TableKeyString: (node) => { void 1; }, // TODO
 
-			TableValue: (node) => { void 1; },
+			TableValue: (node) => { void 1; }, // TODO
 		//#endregion
 
 		//#region expressions
-			TableConstructorExpression: (node) => { void 1; },
+			TableConstructorExpression: (node) => { void 1; }, // TODO
+
+			UnaryExpression: (node) => {
+				this.handlers[node.argument.type](node.argument as any);
+				(node as aug.UnaryExpression).augType = 'not' === node.operator
+					? 'boolean'
+					: 'number';
+			},
 
 			BinaryExpression: (node) => {
 				[node.left, node.right].map(it => this.handlers[it.type](it as any));
-				(node as aug.BinaryExpression).augValue = node;
+				const isComparison = node.operator.endsWith("=")
+					|| node.operator.startsWith("<")
+					|| node.operator.startsWith(">");
+				(node as aug.BinaryExpression).augType = isComparison
+					? 'boolean'
+					: 'number';
 			},
 
 			LogicalExpression: (node) => {
 				[node.left, node.right].map(it => this.handlers[it.type](it as any));
-				(node as aug.LogicalExpression).augValue = node;
-			},
+				const augmented = node as aug.LogicalExpression;
 
-			UnaryExpression: (node) => {
-				this.handlers[node.argument.type](node.argument as any);
-				(node as aug.UnaryExpression).augValue = node;
+				// TODO: better or not at all (or something else)
+				const tyl = (node.left as aug.Expression).augType ?? 'nil';
+				const tyr = (node.right as aug.Expression).augType ?? 'nil';
+				if ('and' === node.operator) {
+					augmented.augType = 'nil' === tyl ? 'nil'
+						: 'boolean' === tyl ? { or: [tyr, 'boolean'] }
+						: tyr;
+				} else if ('or' === node.operator) {
+					augmented.augType = 'nil' === tyl ? tyr
+						: 'boolean' === tyl ? { or: [tyr, 'boolean'] }
+						: tyl;
+				}
 			},
 
 			MemberExpression: (node) => { void 1; }, // TODO
@@ -620,9 +599,12 @@ export class SelfExplore {
 
 			CallExpression: (node) => {
 				this.contextPush(node);
-					const augmented = node.base as aug.Identifier;
-					this.handlers.Identifier(augmented);
-					(node as aug.CallExpression).augValues = [augmented.augValue!];
+					this.handlers[node.base.type](node.base as any);
+
+					const fnType = (node.base as aug.Expression).augType;
+					(node as aug.CallExpression).augType = isLuaFunction(fnType)
+						? fnType.return
+						: 'nil';
 
 					node.arguments.forEach(it => this.handlers[it.type](it as any));
 				this.contextPop('CallExpression');
@@ -630,9 +612,12 @@ export class SelfExplore {
 
 			TableCallExpression: (node) => {
 				this.contextPush(node);
-					const augmented = node.base as aug.Identifier;
-					this.handlers.Identifier(augmented);
-					(node as aug.TableCallExpression).augValues = [augmented.augValue!];
+					this.handlers[node.base.type](node.base as any);
+
+					const fnType = (node.base as aug.Expression).augType;
+					(node as aug.TableCallExpression).augType = isLuaFunction(fnType)
+						? fnType.return
+						: 'nil';
 
 					this.handlers[node.argument.type](node.argument as any);
 				this.contextPop('TableCallExpression');
@@ -640,9 +625,12 @@ export class SelfExplore {
 
 			StringCallExpression: (node) => {
 				this.contextPush(node);
-					const augmented = node.base as aug.Identifier;
-					this.handlers.Identifier(augmented);
-					(node as aug.StringCallExpression).augValues = [augmented.augValue!];
+					this.handlers[node.base.type](node.base as any);
+
+					const fnType = (node.base as aug.Expression).augType;
+					(node as aug.StringCallExpression).augType = isLuaFunction(fnType)
+						? fnType.return
+						: 'nil';
 
 					this.handlers[node.argument.type](node.argument as any);
 				this.contextPop('StringCallExpression');
@@ -651,23 +639,24 @@ export class SelfExplore {
 
 		//#region literals
 			StringLiteral: (node) => {
-				(node as aug.StringLiteral).augValue = node;
+				(node as aug.StringLiteral).augType = 'string';
 			},
 
 			NumericLiteral: (node) => {
-				(node as aug.NumericLiteral).augValue = node;
+				(node as aug.NumericLiteral).augType = 'number';
 			},
 
 			BooleanLiteral: (node) => {
-				(node as aug.BooleanLiteral).augValue = node;
+				(node as aug.BooleanLiteral).augType = 'boolean';
 			},
 
 			NilLiteral: (node) => {
-				(node as aug.NilLiteral).augValue = node;
+				(node as aug.NilLiteral).augType = 'nil';
 			},
 
 			VarargLiteral: (node) => {
-				(node as aug.VarargLiteral).augValue = node;
+				const augmented = node as aug.VarargLiteral;
+				augmented.augType = []; // TODO
 			},
 		//#endregion
 		};

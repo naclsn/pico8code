@@ -210,3 +210,41 @@ export function flattenBinaryTree<K extends string, T>(root: BinaryTreeNode<K, T
 		}
 	}
 }
+
+/**
+ * in some situation, more than one Lua value can be emitted/accepted
+ * (eg. vararg, return statement, table construct, function call)
+ * 
+ * undefine entries are counted as 'nil' types
+ * 
+ * the behavior is as follow:
+ * ```plaintext
+ * for each entry of the `types` list excluding the last one,
+ *   if that entry is not an array, add it to the returned list
+ *   else, add the first element of that array or nil if empty
+ * 
+ * if the last entry of `types` is an array,
+ *   each element are added to the returned list
+ * else, add the entry itself
+ * ```
+ * 
+ * @used `document/ > explore.ts > SelfExplore{} > constructor > this.handlers > FunctionDeclaration`
+ * @used `document/ > explore.ts > SelfExplore{} > constructor > this.handlers > TableConstructExpression`
+ * @used `document/ > explore.ts > SelfExplore{} > constructor > this.handlers > LocalStatement`
+ * @used `document/ > explore.ts > SelfExplore{} > constructor > this.handlers > AssignmentStatement`
+ * @used `document/ > explore.ts > SelfExplore{} > constructor > this.handlers > AssignmentOperatorStatement`
+ */
+export function resolveListOfTypes(types: (LuaType | undefined)[]): LuaType[] {
+	const r = types.slice(0, -1).map(it => {
+		if (Array.isArray(it))
+			return it[0] ?? 'nil';
+		return it ?? 'nil';
+	});
+	if (0 !== types.length) {
+		const last = types[types.length-1];
+		if (Array.isArray(last))
+			r.push(...last);
+		else r.push(last ?? 'nil');
+	}
+	return r;
+}
