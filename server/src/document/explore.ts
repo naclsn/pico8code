@@ -10,11 +10,26 @@ import { locToRange } from '../util';
 type FindByTType<Union, TType> = Union extends { type: TType } ? Union : never;
 
 type TTypes = ast.Node['type'];
-type NodeHandler = { [TType in TTypes]: (node: FindByTType<ast.Node, TType>) => void }
+type NodeHandlers = { [TType in TTypes]: (node: FindByTType<ast.Node, TType>) => void }
+
+export type LUTVariables = { [startPos: string]: {
+	range: Range,
+	name: string,
+	type: LuaType,
+	doc?: LuaDoc,
+	/*-*/scopeTag: string,
+	/*-*/info?: string[],
+} }
+
+export type LUTScopes = {
+	range: Range,
+	scope: LuaScope,
+}[]
 
 export class SelfExplore {
+
 	protected ast: ast.Chunk = { type: 'Chunk', body: [] };
-	private handlers: NodeHandler;
+	private handlers: NodeHandlers;
 
 	protected reset() {
 		this.ast = { type: 'Chunk', body: [] };
@@ -49,7 +64,7 @@ export class SelfExplore {
 		value: LuaDoc,
 	} | undefined } = {};
 
-	private processDoc(raw: string): LuaDoc {
+	private docProcess(raw: string): LuaDoc {
 		const lines = raw.split(/\r?\n/g);
 
 		let type: LuaType | undefined;
@@ -81,7 +96,7 @@ export class SelfExplore {
 				this.docLineMap[range.end.line] = {
 					range,
 					raw: it.rawInterrupted ?? it.raw,
-					value: this.processDoc(it.value),
+					value: this.docProcess(it.value),
 				};
 			}
 		});
@@ -136,7 +151,7 @@ export class SelfExplore {
 
 //#region symbols
 	protected symbols: DocumentSymbol[] = [];
-	protected currentSymbol?: DocumentSymbol & { parent?: DocumentSymbol };
+	private currentSymbol?: DocumentSymbol & { parent?: DocumentSymbol };
 
 	private symbolEnter(name: string, kind: SymbolKind, range: Range, selectionRange: Range) {
 		const newSymbol = { name, kind, range, selectionRange, parent: this.currentSymbol };
@@ -157,13 +172,10 @@ export class SelfExplore {
 //#endregion
 
 //#region scopes
-	protected lutScopes: {
-		range: Range,
-		scope: LuaScope,
-	}[] = [];
+	protected lutScopes: LUTScopes = [];
 
-	protected globalScope: LuaScope = { tag: "global", labels: {}, variables: {}, };
-	protected currentScope!: LuaScope;
+	private globalScope: LuaScope = { tag: "global", labels: {}, variables: {}, };
+	private currentScope!: LuaScope;
 
 	/**
 	 * forks a new scope from the current one, sets it as current
@@ -172,7 +184,7 @@ export class SelfExplore {
 	 * @param range the range of the new scope
 	 * @param tag a tag to set on the new scope
 	 */
-	private fork(range: Range, tag: string): LuaScope {
+	private scopeFork(range: Range, tag: string): LuaScope {
 		const previousScope = this.currentScope;
 		this.currentScope = {
 			labels: Object.create(this.currentScope.labels),
@@ -186,10 +198,12 @@ export class SelfExplore {
 	/**
 	 * restore a previous scope to current, to use with `fork`
 	 */
-	private restore(previousScope: LuaScope) {
+	private scopeRestore(previousScope: LuaScope) {
 		this.currentScope = previousScope;
 	}
+//#endregion
 
+//#region variables
 	/**
 	 * only declare: should not already be visible!
 	 * 
@@ -198,11 +212,12 @@ export class SelfExplore {
 	 * 
 	 * @param scope scope to affect, defaults to current
 	 */
-	private declare(name: string, value: aug.Expression, scope?: LuaScope) {
+	private variableDeclare(name: string, range: Range, value: aug.Expression, scope?: LuaScope) {
 		const theScope = scope ?? this.currentScope;
 		if (!Object.prototype.hasOwnProperty.call(theScope.variables, name)) {
 			theScope.variables[name] = {
 				values: [value],
+				ranges: [range],
 				scopes: [theScope],
 			};
 		} else throw new Error("How did we get here?\n" + `declare, name: ${name}, value: ${value.type}`);
@@ -214,10 +229,11 @@ export class SelfExplore {
 	 * 
 	 * @param scope scope to affect, defaults to current
 	 */
-	private update(name: string, value: aug.Expression, scope?: LuaScope) {
+	private variableUpdate(name: string, range: Range, value: aug.Expression, scope?: LuaScope) {
 		const variable = this.currentScope.variables[name];
 		if (variable) {
 			variable.values.unshift(value);
+			variable.ranges.unshift(range);
 			variable.scopes.unshift(scope ?? this.currentScope);
 		} else throw new Error("How did we get here?\n" + `update, name: ${name}, value: ${value.type}`);
 	}
@@ -225,23 +241,13 @@ export class SelfExplore {
 	/**
 	 * lookup a visible `name` from the current scope (and its parents)
 	 */
-	private lookup(name: string) {
+	private variableLookup(name: string) {
 		return this.currentScope.variables[name];
 	}
-//#endregion
+	protected lutVariables: LUTVariables = {};
 
-//#region variables
-	protected lutVariables: { [name: string]: {
-		range: Range,
-		name: string,
-		type: LuaType,
-		doc?: LuaDoc,
-		/*-*/scopeTag: string,
-		/*-*/info?: string[],
-	} } = {};
-
-	private locate(name: string, range: Range) {
-		const variable = this.lookup(name);
+	private variableLocate(name: string, range: Range) {
+		const variable = this.variableLookup(name);
 		const doc = this.matchingDoc(range);
 		this.lutVariables[`:${range.start.line}:${range.start.character}`] = {
 			range,
@@ -295,9 +301,9 @@ export class SelfExplore {
 			Identifier: (node) => {
 				const augmented = node as aug.Identifier;
 				if (!augmented.augValue)
-					augmented.augValue = this.lookup(augmented.name)?.values[0];
+					augmented.augValue = this.variableLookup(augmented.name)?.values[0];
 
-				this.locate(node.name, locToRange(node.loc));
+				this.variableLocate(node.name, locToRange(node.loc));
 			},
 
 			FunctionDeclaration: (node) => {
@@ -306,13 +312,13 @@ export class SelfExplore {
 				// XXX: selectionRange and such will need the identifier part to be processed before (or at least some of it)
 				this.symbolEnter('Identifier' === node.identifier?.type ? node.identifier.name : "<anonymous>", SymbolKind.Function, range, range);
 					this.contextPush(node);
-						const previousScope = this.fork(range, "function line " + node.loc?.start.line);
+						const previousScope = this.scopeFork(range, "function line " + node.loc?.start.line);
 							node.parameters.forEach(it => {
 								(it as aug.Identifier).augValue = { type: 'NilLiteral', value: null, raw: '' };
 								this.handlers[it.type](it as any);
 							});
 							node.body.forEach(it => this.handlers[it.type](it as any));
-						this.restore(previousScope);
+						this.scopeRestore(previousScope);
 					this.contextPop('FunctionDeclaration');
 				this.symbolExit();
 
@@ -323,8 +329,8 @@ export class SelfExplore {
 						augmented.augValue = node as aug.FunctionDeclaration;
 
 						// TODO: if already exist
-						if (node.isLocal) this.declare(augmented.name, augmented.augValue);
-						else this.declare(augmented.name, augmented.augValue, this.globalScope);
+						if (node.isLocal) this.variableDeclare(augmented.name, locToRange(augmented.loc), augmented.augValue);
+						else this.variableDeclare(augmented.name, locToRange(augmented.loc), augmented.augValue, this.globalScope);
 					}
 					this.handlers[node.identifier.type](node.identifier as any);
 				}
@@ -352,7 +358,7 @@ export class SelfExplore {
 					this.lutVariables[`:${range.start.line}:${range.start.character}`] = {
 						range,
 						name: label.name,
-						type: "line " + (line+1) as any,
+						type: "line " + (line+1) as LuaType, // XXX: what it that?!
 						scopeTag: this.currentScope.tag,
 					};
 				}
@@ -379,25 +385,25 @@ export class SelfExplore {
 				this.contextPush(node);
 					this.handlers[node.condition.type](node.condition as any);
 
-					const previousScope = this.fork(locToRange(node.loc), "while line " + node.loc?.start.line);
+					const previousScope = this.scopeFork(locToRange(node.loc), "while line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
-					this.restore(previousScope);
+					this.scopeRestore(previousScope);
 				this.contextPop('WhileStatement');
 			},
 
 			DoStatement: (node) => {
 				this.contextPush(node);
-					const previousScope = this.fork(locToRange(node.loc), "do line " + node.loc?.start.line);
+					const previousScope = this.scopeFork(locToRange(node.loc), "do line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
-					this.restore(previousScope);
+					this.scopeRestore(previousScope);
 				this.contextPop('DoStatement');
 			},
 
 			RepeatStatement: (node) => {
 				this.contextPush(node);
-					const previousScope = this.fork(locToRange(node.loc), "repeat line " + node.loc?.start.line);
+					const previousScope = this.scopeFork(locToRange(node.loc), "repeat line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
-					this.restore(previousScope);
+					this.scopeRestore(previousScope);
 
 					this.handlers[node.condition.type](node.condition as any);
 				this.contextPop('RepeatStatement');
@@ -430,7 +436,7 @@ export class SelfExplore {
 					augmented.augValue = types[k];
 
 					// TODO: if already exist
-					this.declare(augmented.name, augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' });
+					this.variableDeclare(augmented.name, locToRange(augmented.loc), augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' });
 					this.handlers.Identifier(augmented);
 				});
 			},
@@ -462,14 +468,14 @@ export class SelfExplore {
 					augmented.augValue = types[k];
 
 					// if 'name' is visible from current scope
-					const variable = this.lookup(augmented.name);
+					const variable = this.variableLookup(augmented.name);
 					if (variable) {
 						// update locally
-						this.update(augmented.name, augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, variable.scopes[0]);
+						this.variableUpdate(augmented.name, locToRange(augmented.loc), augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, variable.scopes[0]);
 						this.handlers.Identifier(augmented);
 					} else {
 						// declare globally
-						this.declare(augmented.name, augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, this.globalScope);
+						this.variableDeclare(augmented.name, locToRange(augmented.loc), augmented.augValue ?? { type: 'NilLiteral', value: null, raw: '' }, this.globalScope);
 						this.handlers.Identifier(augmented);
 					}
 				});
@@ -531,23 +537,23 @@ export class SelfExplore {
 
 			ForNumericStatement: (node) => {
 				this.contextPush(node);
-					const previousScope = this.fork(locToRange(node.loc), "for line " + node.loc?.start.line);
+					const previousScope = this.scopeFork(locToRange(node.loc), "for line " + node.loc?.start.line);
 						this.handlers.Identifier(node.variable);
 						[node.start, node.end, node.step].map(it => it && this.handlers[it.type](it as any));
 
 						node.body.forEach(it => this.handlers[it.type](it as any));
-					this.restore(previousScope);
+					this.scopeRestore(previousScope);
 				this.contextPop('WhileStatement');
 			},
 
 			ForGenericStatement: (node) => {
 				this.contextPush(node);
-					const previousScope = this.fork(locToRange(node.loc), "for line " + node.loc?.start.line);
+					const previousScope = this.scopeFork(locToRange(node.loc), "for line " + node.loc?.start.line);
 						node.variables.map(it => this.handlers[it.type](it as any));
 						node.iterators.map(it => this.handlers[it.type](it as any)); // XXX
 
 						node.body.forEach(it => this.handlers[it.type](it as any));
-					this.restore(previousScope);
+					this.scopeRestore(previousScope);
 				this.contextPop('WhileStatement');
 			},
 		//#endregion
@@ -557,9 +563,9 @@ export class SelfExplore {
 				this.contextPush(node);
 					this.handlers[node.condition.type](node.condition as any);
 
-					const previousScope = this.fork(locToRange(node.loc), "if line " + node.loc?.start.line);
+					const previousScope = this.scopeFork(locToRange(node.loc), "if line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
-					this.restore(previousScope);
+					this.scopeRestore(previousScope);
 				this.contextPop('IfClause');
 			},
 
@@ -567,17 +573,17 @@ export class SelfExplore {
 				this.contextPush(node);
 					this.handlers[node.condition.type](node.condition as any);
 
-					const previousScope = this.fork(locToRange(node.loc), "elseif line " + node.loc?.start.line);
+					const previousScope = this.scopeFork(locToRange(node.loc), "elseif line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
-					this.restore(previousScope);
+					this.scopeRestore(previousScope);
 				this.contextPop('ElseifClause');
 			},
 
 			ElseClause: (node) => {
 				this.contextPush(node);
-					const previousScope = this.fork(locToRange(node.loc), "else line " + node.loc?.start.line);
+					const previousScope = this.scopeFork(locToRange(node.loc), "else line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
-					this.restore(previousScope);
+					this.scopeRestore(previousScope);
 				this.contextPop('ElseClause');
 			},
 		//#endregion
@@ -667,4 +673,5 @@ export class SelfExplore {
 		};
 	}
 //#endregion
+
 }

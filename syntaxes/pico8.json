@@ -148,7 +148,7 @@
 					]
 				},
 				{
-					"match": "\\b(break|do|else|for|if|elseif|return|then|repeat|while|until|end|function|local|in)\\b",
+					"match": "\\b(break|do|else|for|if|elseif|return|then|repeat|while|until|end|function|local|in|goto)\\b|::",
 					"name": "keyword.control.lua"
 				},
 				{
@@ -172,7 +172,7 @@
 					"name": "support.function.any-method.lua"
 				},
 				{
-					"match": "(?<=[^.]\\.|:)\\b([A-Za-z_]\\w*)",
+					"match": "(?<=[^.]\\.|[^:]:)\\b([A-Za-z_]\\w*)",
 					"name": "variable.other.lua"
 				},
 				{

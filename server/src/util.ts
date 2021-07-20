@@ -4,7 +4,7 @@ import { Position, Range, TextDocument } from 'vscode-languageserver-textdocumen
 import { LuaDoc, LuaType, represent } from './document/typing';
 
 /**
- * @used `document > explore.ts > ...`
+ * @used `document/ > explore.ts > SelfExplore{} > constructor > this.handlers`
  */
 export function locToRange(loc: ast.Node['loc']): Range {
 	const { start, end } = loc ?? { start: {line:1,column:0}, end: {line:1,column:0}, };
@@ -24,8 +24,14 @@ export function locToRange(loc: ast.Node['loc']): Range {
  * @used `documents.ts > Document{} > findScope()`
  */
 export function rangeContains(range: Range, position: Position) {
-	if (range.start.line <= position.line && position.line <= range.end.line)
-		if (range.start.character <= position.character && position.character <= range.end.character)
+	if (range.start.line < position.line && position.line < range.end.line)
+		return true;
+	if (range.start.line === position.line)
+		if (range.start.character <= position.character)
+			return true;
+	if (range.end.line === position.line)
+		if (position.character <= range.end.character)
+			return true;
 	return false;
 }
 
@@ -77,7 +83,7 @@ export function findWordRange(document: TextDocument, position: Position): Range
  * 
  * @example delimitSubstring("(a, b, c) -> [(d) -> nil]", "(", ")") === [1, 8]
  * 
- * @used `document > typing.ts > parse()`
+ * @used `document/ > typing.ts > parse()`
  */
 export function delimitSubstring(str: string, open: string, close: string) {
 	let s = 0;
@@ -116,7 +122,7 @@ export function delimitSubstring(str: string, open: string, close: string) {
  * 
  * @example splitCarefully("{ a: string, b: boolean }, number") === ["{ a: string, b: boolean }", " c: number"]
  * 
- * @used `document > typing.ts > parse()`
+ * @used `document/ > typing.ts > parse()`
  */
 export function splitCarefully(str: string, sep: string) {
 	const r: string[] = [];
@@ -174,4 +180,33 @@ export function representVariableHover(tag: string, name: string, type: LuaType,
 			doc.text,
 		]),
 	].join("\n");
+}
+
+// typing not perfect but will do
+type BinaryTreeNode<K extends string, T> = Record<K, [left: BinaryTreeNode<K, T> | T, right: BinaryTreeNode<K, T> | T]>
+
+/**
+ * flattens a binary tree into a list
+ * 
+ * assumes that if `root` has a key named `propertyName`,
+ * `root[propertyName]` is a tuple `[left, right]`
+ * 
+ * returns undefined otherwise
+ * 
+ * @used `document/ > typing.ts > simplify()`
+ * @used `document/ > typing.ts > equivalent()`
+ */
+export function flattenBinaryTree<K extends string, T>(root: BinaryTreeNode<K, T> | T, propertyName: K): Exclude<T, BinaryTreeNode<K, T>>[] | undefined {
+	if (Object.hasOwnProperty.call(root, propertyName)) {
+		const yes = root as BinaryTreeNode<K, T>;
+		if (Array.isArray(yes[propertyName]) && 2 === yes[propertyName].length) {
+			const r: Exclude<T, BinaryTreeNode<K, T>>[] = [];
+
+			const [a, b] = yes[propertyName];
+			r.concat(flattenBinaryTree(a, propertyName) ?? []);
+			r.concat(flattenBinaryTree(b, propertyName) ?? []);
+
+			return r;
+		}
+	}
 }

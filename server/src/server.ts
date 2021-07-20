@@ -76,38 +76,6 @@ connection.onDidChangeWatchedFiles(change => {
 	//change.changes.forEach(it => console.log(` * (${it.type}) ${it.uri}`));
 });
 
-// Provide the initial list of the completion items.
-connection.onCompletion(textDocumentPosition => {
-	//console.log("We received a completion request:");
-	//console.log(" @ " + textDocumentPosition.textDocument.uri + ":" + textDocumentPosition.position.line + ":" + textDocumentPosition.position.character);
-	const items: CompletionItem[] = [
-		{
-			label: "TypeScript",
-			kind: CompletionItemKind.Text,
-			data: 1,
-		},
-		{
-			label: "JavaScript",
-			kind: CompletionItemKind.Text,
-			data: 2,
-		},
-	];
-	return items;
-});
-
-// Resolve additional information for the item selected.
-connection.onCompletionResolve(item => {
-	//console.log("We received a completion _resolve_ request:");
-	if (item.data === 1) {
-		item.detail = "TypeScript details";
-		item.documentation = "TypeScript documentation";
-	} else if (item.data === 2) {
-		item.detail = "JavaScript details";
-		item.documentation = "JavaScript documentation";
-	}
-	return item;
-});
-
 settings.listen(connection);
 documents.listen(connection);
 connection.listen();
