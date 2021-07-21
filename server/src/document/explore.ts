@@ -3,7 +3,7 @@ import { Diagnostic, DiagnosticSeverity, DocumentSymbol, SymbolKind, SymbolTag }
 import { Range } from 'vscode-languageserver-textdocument';
 
 import { aug } from './augmented';
-import { LuaType, LuaScope, LuaDoc, parse, isLuaFunction, represent, LuaKey, isLuaTypedKey, LuaTable, isLuaTable } from './typing';
+import { LuaType, LuaScope, LuaDoc, parse, isLuaFunction, represent, isLuaTypedKey, LuaTable, isLuaTable } from './typing';
 import { buildBinaryTree, locToRange, resolveListOfTypes } from '../util';
 
 /** @thanks https://stackoverflow.com/a/64469734/13196480 */
@@ -482,18 +482,19 @@ export class SelfExplore {
 
 				node.variables.forEach((it, k) => {
 					const range = locToRange(it.loc);
+					const type = types[k] ?? 'nil';
 
 					if ('Identifier' === it.type) { // TODO
 						// if 'name' is visible from current scope
 						const variable = this.variableLookup(it.name);
 						if (variable) {
 							// update locally
-							this.variableUpdate(it.name, range, types[k] ?? 'nil', variable.scopes[0]);
+							this.variableUpdate(it.name, range, type, variable.scopes[0]);
 							this.handlers.Identifier(it);
 						} else {
 							this.symbolEnter(it.name, SymbolKind.Object, range, range);
 								// declare globally
-								this.variableDeclare(it.name, range, types[k] ?? 'nil', this.globalScope);
+								this.variableDeclare(it.name, range, type, this.globalScope);
 								this.handlers.Identifier(it);
 							this.symbolExit();
 						}
@@ -501,7 +502,41 @@ export class SelfExplore {
 				});
 			},
 
-			AssignmentOperatorStatement: (node) => { void 2; }, // TODO
+			AssignmentOperatorStatement: (node) => {
+				const typesFromExpressions = node.init.map(it => {
+					this.handlers[it.type](it as any);
+					return (it as aug.Expression).augType ?? 'nil';
+				});
+				const types = resolveListOfTypes(typesFromExpressions);
+
+				// the type for the first variable is inferred from the operation
+				// (as it's the one that behave as intended)
+				types[0] = ".." === node.operator
+					? 'string'
+					: 'number';
+
+				// the rest behave like a normal assignment operator statement
+				node.variables.forEach((it, k) => {
+					const range = locToRange(it.loc);
+					const type = types[k] ?? 'nil';
+
+					if ('Identifier' === it.type) { // TODO
+						// if 'name' is visible from current scope
+						const variable = this.variableLookup(it.name);
+						if (variable) {
+							// update locally
+							this.variableUpdate(it.name, range, type, variable.scopes[0]);
+							this.handlers.Identifier(it);
+						} else {
+							this.symbolEnter(it.name, SymbolKind.Object, range, range);
+								// declare globally
+								this.variableDeclare(it.name, range, type, this.globalScope);
+								this.handlers.Identifier(it);
+							this.symbolExit();
+						}
+					}
+				});
+			},
 
 			CallStatement: (node) => {
 				this.contextPush(node);
@@ -575,7 +610,6 @@ export class SelfExplore {
 					|| 'BooleanLiteral' === node.key.type)
 						augmented.augKey = node.key.value;
 					else augmented.augKey = { type }; // YYY: label (?)
-					console.log(node.key.type + " with value " + (node.key as any).value);
 				} else if ('nil' === type) augmented.augKey = null;
 				augmented.augType = (node.value as aug.Expression).augType ?? 'nil';
 			},
@@ -661,7 +695,9 @@ export class SelfExplore {
 					|| node.operator.startsWith(">");
 				(node as aug.BinaryExpression).augType = isComparison
 					? 'boolean'
-					: 'number';
+					: ".." === node.operator
+						? 'string'
+						: 'number';
 			},
 
 			LogicalExpression: (node) => {
@@ -673,18 +709,42 @@ export class SelfExplore {
 				const tyr = (node.right as aug.Expression).augType ?? 'nil';
 				if ('and' === node.operator) {
 					augmented.augType = 'nil' === tyl ? 'nil'
-						: 'boolean' === tyl ? { or: [tyr, 'boolean'] }
+						: 'boolean' === tyl ? { or: ['boolean', tyr] }
 						: tyr;
 				} else if ('or' === node.operator) {
 					augmented.augType = 'nil' === tyl ? tyr
-						: 'boolean' === tyl ? { or: [tyr, 'boolean'] }
+						: 'boolean' === tyl ? { or: ['boolean', tyr] }
 						: tyl;
 				}
 			},
 
-			MemberExpression: (node) => { void 1; }, // TODO
+			MemberExpression: (node) => {
+				this.handlers[node.base.type](node.base as any);
 
-			IndexExpression: (node) => { void 1; }, // TODO
+				const tbType = (node.base as aug.Expression).augType;
+
+				let type: LuaType = 'nil'; // XXX: en gros 'unknown'
+				if (isLuaTable(tbType))
+					type = tbType.entries?.[node.identifier.name] ?? 'nil';
+				(node as aug.MemberExpression).augType = type;
+
+				// XXX: experimental and doesn't work anyways
+				(node.identifier as aug.Identifier).augType = type;
+				this.handlers.Identifier(node.identifier);
+			},
+
+			IndexExpression: (node) => {
+				this.handlers[node.base.type](node.base as any);
+				this.handlers[node.index.type](node.index as any);
+
+				const tbType = (node.base as aug.Expression).augType;
+				const keyType = (node.index as aug.Expression).augType;
+
+				let type: LuaType = 'nil'; // XXX: en gros 'unknown'
+				if (isLuaTable(tbType) && ('string' === keyType || 'number' === keyType || 'boolean' === keyType))
+					type = tbType.typed?.[keyType] ?? 'nil';
+				(node as aug.IndexExpression).augType = type;
+			},
 
 			CallExpression: (node) => {
 				this.contextPush(node);
@@ -775,8 +835,8 @@ export class SelfExplore {
 			},
 
 			VarargLiteral: (node) => {
-				const augmented = node as aug.VarargLiteral;
-				augmented.augType = []; // TODO
+				const doc = this.docMatching(locToRange(node.loc));
+				(node as aug.VarargLiteral).augType = doc?.type ?? []; // TODO/XXX: en gros 'unknown'
 			},
 		//#endregion
 		};

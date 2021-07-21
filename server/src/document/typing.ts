@@ -94,7 +94,7 @@ export type LuaDoc = {
  * parentheses are added around a typeRet if it is a union or intersection
  * 
  * ### table
- * `{ key1: typeK1, typeNoKey1, ... }`
+ * `{ key1: typeK1, ["complex key2"]: typeK2, typeNoKey3, ... }`
  * 
  * ### union
  * `typeA | typeB`
@@ -145,9 +145,12 @@ export function represent(type: LuaType): string {
 		const false_ = type.false ? `[false]: ${represent(type.false)}` : "";
 		const typed = !type.typed ? "" : Object
 			.entries(type.typed)
-			.map(([keyType, _type]) => `[: ${keyType}]: ${represent(_type)}`) // XXX: label (?)
+			.map(([keyType, _type]) => `[: ${keyType}]: ${represent(_type)}`) // YYY: label (?)
 			.join(", ");
-		return `{ ${[typed, true_, false_, entries, sequence].filter(_=>_).join(", ")} }`;
+		const full = [typed, true_, false_, entries, sequence]
+			.filter(_=>_)
+			.join(", ");
+		return !full ? '{}' : `{ ${full} }`;
 	}
 
 	if (Object.prototype.hasOwnProperty.call(type, 'or')) {

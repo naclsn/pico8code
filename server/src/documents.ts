@@ -5,7 +5,7 @@ import { Position, Range, TextDocument } from 'vscode-languageserver-textdocumen
 import { LUTScopes, LUTVariables, SelfExplore } from './document/explore';
 import { isLuaFunction, represent } from './document/typing';
 import { SettingsManager } from './settings';
-import { findWordRange, locToRange, rangeContains, representVariableHover } from './util';
+import { findWordRange, rangeContains, representVariableHover } from './util';
 
 const parseOptions: Partial<ParseOptions> = {
 	luaVersion: 'PICO-8-0.2.1', // XXX: from option or from p8 file header
@@ -75,7 +75,7 @@ export class Document extends SelfExplore {
 	}
 
 	handleOnDocumentSymbol(): DocumentSymbol[] | null {
-		return this.symbols;
+		return this.symbols; // TODO/XXX: languageserver throws when this has circular references (which it can, which is the thing to fix)
 	}
 
 	handleOnCompletion(position: Position, context?: CompletionContext): CompletionItem[] | null {
