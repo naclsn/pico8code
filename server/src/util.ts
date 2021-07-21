@@ -118,13 +118,16 @@ export function delimitSubstring(str: string, open: string, close: string) {
  * 
  * fails if `delimitSubstring` fails, returns undefined
  * 
+ * `nbCut` limits the number of cut (not the same as JS split's)
+ * eg. `splitCarefully("a-b-c", "-", 1) === ["a", "b-c"]`
+ * 
  * @throws `SyntaxError`
  * 
  * @example splitCarefully("{ a: string, b: boolean }, number") === ["{ a: string, b: boolean }", " c: number"]
  * 
  * @used `document/ > typing.ts > parse()`
  */
-export function splitCarefully(str: string, sep: string) {
+export function splitCarefully(str: string, sep: string, nbCut?: number) {
 	const r: string[] = [];
 	let l = 0;
 	const pairs = "()[]{}";
@@ -138,6 +141,8 @@ export function splitCarefully(str: string, sep: string) {
 			r.push(str.substring(l, k).trim());
 			l = k+1;
 		}
+
+		if (nbCut && r.length === nbCut-1) break;
 	}
 	r.push(str.substr(l).trim());
 	return r;
@@ -203,12 +208,27 @@ export function flattenBinaryTree<K extends string, T>(root: BinaryTreeNode<K, T
 			const r: Exclude<T, BinaryTreeNode<K, T>>[] = [];
 
 			const [a, b] = yes[propertyName];
-			r.concat(flattenBinaryTree(a, propertyName) ?? []);
-			r.concat(flattenBinaryTree(b, propertyName) ?? []);
+			r.push(...(flattenBinaryTree(a, propertyName) ?? [a as Exclude<T, BinaryTreeNode<K, T>>]));
+			r.push(...(flattenBinaryTree(b, propertyName) ?? [b as Exclude<T, BinaryTreeNode<K, T>>]));
 
 			return r;
 		}
 	}
+}
+
+/**
+ * builds a binary tree from a list; left branching ie. (a | b) | c
+ * 
+ * this reverses `flattenBinaryTree` (to some extent);
+ * if the list is empty, returns null
+ * 
+ * @used `document/ > explore.ts > SelfExplore{} > constructor > this.handlers > FunctionDeclaration`
+ * @used `document/ > typing.ts > parse()`
+ * @used `document/ > typing.ts > simplify()`
+ * @used `util.ts > flattenType()`
+ */
+export function buildBinaryTree<K extends string, T>(nodes: T[], propertyName: K): BinaryTreeNode<K, T> | T | null {
+	return nodes.reduce((acc, cur) => acc ? { [propertyName]: [acc, cur] } as BinaryTreeNode<K, T> : cur, null! as BinaryTreeNode<K, T> | T);
 }
 
 /**
@@ -237,14 +257,51 @@ export function flattenBinaryTree<K extends string, T>(root: BinaryTreeNode<K, T
 export function resolveListOfTypes(types: (LuaType | undefined)[]): LuaType[] {
 	const r = types.slice(0, -1).map(it => {
 		if (Array.isArray(it))
-			return it[0] ?? 'nil';
-		return it ?? 'nil';
+			return flattenType(it[0])[0];
+		return flattenType(it)[0];
 	});
 	if (0 !== types.length) {
 		const last = types[types.length-1];
 		if (Array.isArray(last))
 			r.push(...last);
-		else r.push(last ?? 'nil');
+		else r.push(...flattenType(last));
 	}
 	return r;
+}
+
+/**
+ * completely flattens a type into a list for the `resolveListOfTypes` above
+ * eg. `a | [b, c]` becomes `[a|b, nil|c]`
+ * 
+ * @used `util.ts > resolveListOfTypes()`
+ */
+function flattenType(type: LuaType | undefined): LuaType[] {
+	if (Object.hasOwnProperty.call(type, 'or')) {
+		const flat = flattenBinaryTree(type, 'or') ?? ['nil'];
+
+		const r: LuaType[] = [];
+		let l = 0;
+		do {
+			let hasNil = false;
+			const level: LuaType[] = [];
+			for (let k = 0; k < flat.length; k++) {
+				const it = flat[k];
+				let t: LuaType = 'nil';
+
+				if (Array.isArray(it)) {
+					if (it[l]) t = it[l];
+				} else if (0 === l && it) t = it;
+
+				if ('nil' === t) {
+					if (!hasNil) level.push(t);
+					hasNil = true;
+				} else level.push(t);
+			}
+			if (1 === level.length && 'nil' === level[0]) break;
+			r.push(buildBinaryTree(level, 'or') ?? 'nil');
+		} while (r[l++]);
+
+		return r;
+	}
+	return [type ?? 'nil'];
 }

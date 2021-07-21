@@ -4,7 +4,7 @@ import { Range } from 'vscode-languageserver-textdocument';
 
 import { aug } from './augmented';
 import { LuaType, LuaScope, LuaDoc, parse, isLuaFunction, represent } from './typing';
-import { locToRange, resolveListOfTypes } from '../util';
+import { buildBinaryTree, locToRange, resolveListOfTypes } from '../util';
 
 /** @thanks https://stackoverflow.com/a/64469734/13196480 */
 type FindByTType<Union, TType> = Union extends { type: TType } ? Union : never;
@@ -338,17 +338,17 @@ export class SelfExplore {
 
 					const augmented = node as aug.FunctionDeclaration;
 
+					// join 'return' found as a union
 					const ret = !augmented.augReturns
 						? 'nil'
-						: augmented.augReturns
-							.map(it => {
-								const list = resolveListOfTypes((it.arguments as aug.Expression[]).map(_it => _it.augType));
-								return 0 === list.length ? 'nil'
-									: 1 === list.length ? list[0]
-									: list;
-							})
-							// join each possible return as a union; left branching ie. (a | b) | c
-							.reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!);
+						: buildBinaryTree(augmented.augReturns
+								.map(it => {
+									const list = resolveListOfTypes((it.arguments as aug.Expression[]).map(_it => _it.augType));
+									return 0 === list.length ? 'nil'
+										: 1 === list.length ? list[0]
+										: list;
+								}), 'or'
+							) ?? 'nil';
 					const resolved = { parameters, return: ret };
 
 					augmented.augType = overrideType ? overrideType : resolved;
@@ -460,10 +460,6 @@ export class SelfExplore {
 					return (it as aug.Expression).augType ?? 'nil';
 				});
 				const types = resolveListOfTypes(typesFromExpressions);
-
-				console.log(`${node.loc?.start.line}:${node.loc?.start.column} AssignmentStatement(${node.variables.length}* = ${node.init.length}*)`);
-				console.dir(typesFromExpressions, { depth: 42 });
-				console.dir(types, { depth: 42 });
 
 				node.variables.forEach((it, k) => {
 					const range = locToRange(it.loc);

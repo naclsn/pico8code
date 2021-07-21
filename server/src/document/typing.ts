@@ -1,7 +1,6 @@
 import { Range } from 'vscode-languageserver-textdocument';
 
-import { aug } from './augmented';
-import { delimitSubstring, flattenBinaryTree, splitCarefully } from '../util';
+import { buildBinaryTree, delimitSubstring, flattenBinaryTree, splitCarefully } from '../util';
 
 export type LuaNil = 'nil'
 export type LuaNumber = 'number'
@@ -174,14 +173,14 @@ export function parse(repr: string): LuaType {
 	if (repr.includes("|")) {
 		const list = splitCarefully(repr, "|");
 		if (1 < list.length)
-			return list.map(parse).reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!);
+			return buildBinaryTree(list.map(parse), 'or')!;
 	}
 
 	// // handles "type_repr_a & type_repr_b"
 	// if (repr.includes("&")) {
 	// 	const list = splitCarefully(repr, "&");
 	// 	if (1 < list.length)
-	// 		return list.map(parse).reduce((acc, cur) => acc ? { and: [acc, cur] } : cur, null!);
+	// 		return buildBinaryTree(list.map(parse), 'and')!;
 	// }
 
 	// // handles "~type_repr"
@@ -196,10 +195,10 @@ export function parse(repr: string): LuaType {
 		return {
 			entries: Object.fromEntries(inner
 				.map(it => {
-					const co = it.indexOf(":"); // XXX: no! it's not ok! (because of numbered entries...) would work with a splitCarefully
-					if (-1 < co) {
-						const key = it.substring(0, co).trim();
-						const type = parse(it.substring(co + 1));
+					const keyOrType_typeOrEmpty = splitCarefully(it, ":", 1);
+					if (keyOrType_typeOrEmpty[1]) {
+						const key = keyOrType_typeOrEmpty[0].trim();
+						const type = parse(keyOrType_typeOrEmpty[1]);
 						return [key, type];
 					} else return [keyCounting++, parse(it)];
 				})
@@ -335,7 +334,7 @@ export function simplify(type: LuaType): LuaType {
 		}
 
 		// re-join as a union
-		return r.reduce((acc, cur) => acc ? { or: [acc, cur] } : cur, null!);
+		return buildBinaryTree(r, 'or')!;
 	}
 
 	// if (Object.hasOwnProperty.call(type, 'or')) {

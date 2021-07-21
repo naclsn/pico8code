@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-namespace */
 /* eslint-disable @typescript-eslint/no-empty-interface */
-import { ast } from 'pico8parse';
-import { LuaFunction, LuaTable, LuaType } from './typing';
+import type { ast } from 'pico8parse';
+import type { LuaFunction, LuaTable, LuaType } from './typing';
 
 export namespace aug {
 
