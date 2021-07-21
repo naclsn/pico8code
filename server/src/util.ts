@@ -142,7 +142,7 @@ export function splitCarefully(str: string, sep: string, nbCut?: number) {
 			l = k+1;
 		}
 
-		if (nbCut && r.length === nbCut-1) break;
+		if (nbCut && r.length === nbCut) break;
 	}
 	r.push(str.substr(l).trim());
 	return r;
@@ -202,7 +202,7 @@ type BinaryTreeNode<K extends string, T> = Record<K, [left: BinaryTreeNode<K, T>
  * @used `document/ > typing.ts > equivalent()`
  */
 export function flattenBinaryTree<K extends string, T>(root: BinaryTreeNode<K, T> | T, propertyName: K): Exclude<T, BinaryTreeNode<K, T>>[] | undefined {
-	if (Object.hasOwnProperty.call(root, propertyName)) {
+	if (Object.prototype.hasOwnProperty.call(root, propertyName)) {
 		const yes = root as BinaryTreeNode<K, T>;
 		if (Array.isArray(yes[propertyName]) && 2 === yes[propertyName].length) {
 			const r: Exclude<T, BinaryTreeNode<K, T>>[] = [];
@@ -276,7 +276,7 @@ export function resolveListOfTypes(types: (LuaType | undefined)[]): LuaType[] {
  * @used `util.ts > resolveListOfTypes()`
  */
 function flattenType(type: LuaType | undefined): LuaType[] {
-	if (Object.hasOwnProperty.call(type, 'or')) {
+	if (Object.prototype.hasOwnProperty.call(type, 'or')) {
 		const flat = flattenBinaryTree(type, 'or') ?? ['nil'];
 
 		const r: LuaType[] = [];

@@ -17,7 +17,7 @@ export type LUTVariables = { [startPos: string]: {
 	name: string,
 	type: LuaType,
 	doc?: LuaDoc,
-	/*-*/scopeTag: string,
+	scope: LuaScope,
 	/*-*/info?: string[],
 } }
 
@@ -52,7 +52,7 @@ export class SelfExplore {
 
 	protected explore() {
 		if (this.ast) {
-			this.gatherDoc();
+			this.docGather();
 			this.handlers.Chunk(this.ast);
 		} else throw new Error("How did we get here?\n" + `explore, ast: ${this.ast}`);
 	}
@@ -89,7 +89,7 @@ export class SelfExplore {
 	 * it is simpler to have a requirement that doc comment be attached to the
 	 * associated object with no line in between and not on the same line
 	 */
-	private gatherDoc() { // XXX: the @types/pico8parse is not up-to-date
+	private docGather() { // XXX: the @types/pico8parse is not up-to-date
 		(this.ast.comments as ast.Comment[] | undefined)?.forEach(it => {
 			if (it.raw.startsWith("--[[") && it.raw.endsWith("]]")) {
 				const range = locToRange(it.loc);
@@ -108,7 +108,7 @@ export class SelfExplore {
 	 * it is simpler to have a requirement that doc comment be attached to the
 	 * associated object with no line in between and not on the same line
 	 */
-	private matchingDoc(range: Range) {
+	private docMatching(range: Range) {
 		return this.docLineMap[range.start.line - 1]?.value;
 	}
 //#endregion
@@ -204,6 +204,8 @@ export class SelfExplore {
 //#endregion
 
 //#region variables
+	protected lutVariables: LUTVariables = {};
+
 	/**
 	 * only declare: should not already be visible!
 	 * 
@@ -239,22 +241,37 @@ export class SelfExplore {
 	}
 
 	/**
+	 * somewhat similar to updating, with its last type and scope it had
+	 */
+	private variableReference(name: string, range: Range) {
+		const variable = this.currentScope.variables[name];
+		if (variable) {
+			const at = variable.ranges[0].start;
+			if (at.line === range.start.line && at.character === range.start.character)
+				return; // was already referenced through a "declare" or "update"
+
+			variable.types.unshift(variable.types[0]);
+			variable.ranges.unshift(range);
+			variable.scopes.unshift(variable.scopes[0]);
+		} else throw new Error("How did we get here?\n" + `reference, name: ${name}, range: ${range.start.line}:${range.start.character}-${range.end.line}:${range.end.character}`);
+	}
+
+	/**
 	 * lookup a visible `name` from the current scope (and its parents)
 	 */
 	private variableLookup(name: string) {
 		return this.currentScope.variables[name];
 	}
-	protected lutVariables: LUTVariables = {};
 
 	private variableLocate(name: string, range: Range) {
 		const variable = this.variableLookup(name);
-		const doc = this.matchingDoc(range);
+		const doc = this.docMatching(range); // XXX: to have the doc change like the typing does: here lookup each range the var is at until the first docMatching or <BOF>
 		this.lutVariables[`:${range.start.line}:${range.start.character}`] = {
 			range,
 			name,
 			type: variable ? variable.types[0] : 'nil', // XXX: for now '0' ie. 'latest'
 			doc,
-			scopeTag: variable?.scopes[0].tag ?? this.currentScope.tag,
+			scope: variable?.scopes[0] ?? this.currentScope,
 			info: variable?.types.map((it, k) => `(${variable.scopes[k].tag}) ${represent(it)}`),
 		};
 		return range;
@@ -300,8 +317,10 @@ export class SelfExplore {
 
 			Identifier: (node) => {
 				const augmented = node as aug.Identifier;
-				if (!augmented.augType)
+				if (!augmented.augType) {
 					augmented.augType = this.variableLookup(node.name)?.types[0];
+					this.variableReference(node.name, locToRange(node.loc));
+				}
 
 				this.variableLocate(node.name, locToRange(node.loc));
 			},
@@ -309,7 +328,7 @@ export class SelfExplore {
 			FunctionDeclaration: (node) => {
 				const range = locToRange(node.loc);
 
-				const doc = this.matchingDoc(range);
+				const doc = this.docMatching(range);
 				const overrideType = !!doc && isLuaFunction(doc.type) && doc.type;
 
 				// XXX: selectionRange and such will need the identifier part to be processed before (or at least some of it)
@@ -322,7 +341,7 @@ export class SelfExplore {
 								if ('Identifier' === augmented.type) {
 									name = augmented.name;
 									// TODO: if already exist
-									this.variableDeclare(name, locToRange(node.loc), overrideType ? overrideType.parameters[k].type : 'nil'); // TODO: 'unknown' or something
+									this.variableDeclare(name, locToRange(it.loc), overrideType ? overrideType.parameters[k].type : 'nil'); // TODO: 'unknown' or something
 								}
 								this.handlers[augmented.type](augmented as any);
 								return {
@@ -386,7 +405,7 @@ export class SelfExplore {
 						range,
 						name: label.name,
 						type: "line " + (line+1) as LuaType, // XXX: what it that?!
-						scopeTag: this.currentScope.tag,
+						scope: this.currentScope,
 					};
 				}
 			},

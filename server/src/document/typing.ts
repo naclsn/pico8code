@@ -112,7 +112,7 @@ export function represent(type: LuaType): string {
 			.join(", ");
 		// add "()" around type such as "a | b" to avoid returning
 		// "() -> a | b" which is equivalent to "(() -> a) | b"
-		const retComplex = Object.hasOwnProperty.call(type.return, 'or'); // || Object.hasOwnProperty.call(type.return, 'and');
+		const retComplex = Object.prototype.hasOwnProperty.call(type.return, 'or'); // || Object.prototype.hasOwnProperty.call(type.return, 'and');
 		const ret = retComplex ? `(${represent(type.return)})` : represent(type.return);
 		return `(${param}) -> ${ret}`;
 	}
@@ -125,23 +125,23 @@ export function represent(type: LuaType): string {
 		return `{ ${entries} }`;
 	}
 
-	if (Object.hasOwnProperty.call(type, 'or')) {
+	if (Object.prototype.hasOwnProperty.call(type, 'or')) {
 		const [a, b] = (type as { or: [LuaType, LuaType] }).or;
 		const reprA = represent(a);
 		const reprB = represent(b);
 		return reprA + " | " + reprB;
 	}
 
-	// if (Object.hasOwnProperty.call(type, 'and')) {
+	// if (Object.prototype.hasOwnProperty.call(type, 'and')) {
 	// 	const [a, b] = (type as { and: [LuaType, LuaType] }).and;
-	// 	const reprA = Object.hasOwnProperty.call(a, 'or') ? `(${represent(a)})` : represent(a);
-	// 	const reprB = Object.hasOwnProperty.call(b, 'or') ? `(${represent(b)})` : represent(b);
+	// 	const reprA = Object.prototype.hasOwnProperty.call(a, 'or') ? `(${represent(a)})` : represent(a);
+	// 	const reprB = Object.prototype.hasOwnProperty.call(b, 'or') ? `(${represent(b)})` : represent(b);
 	// 	return reprA + " & " + reprB;
 	// }
 
-	// if (Object.hasOwnProperty.call(type, 'not')) {
+	// if (Object.prototype.hasOwnProperty.call(type, 'not')) {
 	// 	const c = (type as { not: [LuaType, LuaType] }).not;
-	// 	const retComplex = Object.hasOwnProperty.call(c, 'or') || Object.hasOwnProperty.call(c, 'and');
+	// 	const retComplex = Object.prototype.hasOwnProperty.call(c, 'or') || Object.prototype.hasOwnProperty.call(c, 'and');
 	// 	const reprC = retComplex ? `(${represent(c)})` : represent(c);
 	// 	return "~" + reprC;
 	// }
@@ -271,7 +271,7 @@ export function simplify(type: LuaType): LuaType {
 		};
 	}
 
-	if (Object.hasOwnProperty.call(type, 'or')) {
+	if (Object.prototype.hasOwnProperty.call(type, 'or')) {
 		const flat = flattenBinaryTree(type, 'or')!.map(simplify);
 		const r: LuaType[] = [];
 
@@ -337,11 +337,11 @@ export function simplify(type: LuaType): LuaType {
 		return buildBinaryTree(r, 'or')!;
 	}
 
-	// if (Object.hasOwnProperty.call(type, 'or')) {
+	// if (Object.prototype.hasOwnProperty.call(type, 'or')) {
 	// 	complicated
 	// }
 
-	// if (Object.hasOwnProperty.call(type, 'note')) {
+	// if (Object.prototype.hasOwnProperty.call(type, 'note')) {
 	// 	complicated
 	// }
 
@@ -406,8 +406,8 @@ export function equivalent(typeA: LuaType, typeB: LuaType): boolean {
 	if (tableTypeA || tableTypeB) return false;
 
 	// can't TypeScript use `hasOwnProperty` as hint? would be nice :/
-	const unionTypeA = Object.hasOwnProperty.call(typeA, 'or') ? typeA as { or: [LuaType, LuaType] } : false;
-	const unionTypeB = Object.hasOwnProperty.call(typeB, 'or') ? typeB as { or: [LuaType, LuaType] } : false;
+	const unionTypeA = Object.prototype.hasOwnProperty.call(typeA, 'or') ? typeA as { or: [LuaType, LuaType] } : false;
+	const unionTypeB = Object.prototype.hasOwnProperty.call(typeB, 'or') ? typeB as { or: [LuaType, LuaType] } : false;
 	// OK, so this might not be enough to compare unions in general,
 	// but should be a start _for simplified types_ (ie. results from `simplify`)
 	if (unionTypeA && unionTypeB) {

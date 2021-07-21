@@ -27,6 +27,7 @@ connection.onInitialize(params => {
 			},
 			hoverProvider: true,
 			documentSymbolProvider: true,
+			documentHighlightProvider: true,
 		},
 	};
 	if (settings.hasWorkspaceFolderCapability) {

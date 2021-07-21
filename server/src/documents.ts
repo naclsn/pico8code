@@ -1,5 +1,5 @@
 import { parse, Options as ParseOptions, SyntaxError as ParseError } from 'pico8parse';
-import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent, CompletionParams, CompletionItem as BaseCompletionItem, CompletionContext, DocumentSymbol, Diagnostic, CompletionItemKind } from 'vscode-languageserver';
+import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent, CompletionParams, CompletionItem as BaseCompletionItem, CompletionContext, DocumentSymbol, Diagnostic, CompletionItemKind, DocumentHighlightParams, DocumentHighlight, DocumentHighlightKind } from 'vscode-languageserver';
 import { Position, Range, TextDocument } from 'vscode-languageserver-textdocument';
 
 import { LUTScopes, LUTVariables, SelfExplore } from './document/explore';
@@ -56,11 +56,12 @@ export class Document extends SelfExplore {
 	handleOnHover(range: Range): Hover | null {
 		const found = this.findVariable(range.start);
 		if (!found) return null;
+
 		return {
 			contents: {
 				kind: 'markdown',
 				value: [
-					representVariableHover(found.scopeTag, found.name, found.type, found.doc),
+					representVariableHover(found.scope.tag, found.name, found.type, found.doc),
 					/*-*/...(!found.info ?  [] : [
 						" ",
 						"---",
@@ -79,18 +80,16 @@ export class Document extends SelfExplore {
 
 	handleOnCompletion(position: Position, context?: CompletionContext): CompletionItem[] | null {
 		const found = this.findScope(position);
-		if (!found) return null;
+		if (!found) return null; // XXX: always false because doesn't account for __lua__ section interruptions (ie. in __gfx__ is still in a scope)
 
 		const list: CompletionItem[] = [];
 		for (const label in found.scope.variables) {
 			const it = found.scope.variables[label]!;
 			list.push({
 				label,
-				documentation: it.ranges
-					.slice()
-					.reverse()
+				/*-*/documentation: it.ranges
 					.map((_it, k) => `${represent(it.types[k])} (${_it.start.line}:${_it.start.character} in ${it.scopes[k].tag})`)
-					.join(", "),
+					.join(", "), // note: these references are "backward" (first of the list is last reference in document)
 				data: {
 					uri: this.uri,
 					recent: it.ranges[0].start,
@@ -119,6 +118,14 @@ export class Document extends SelfExplore {
 			].join("\n"),
 		};
 		return item;
+	}
+
+	handleOnDocumentHighlight(range: Range): DocumentHighlight[] | null {
+		const variable = this.findVariable(range.start);
+		const reference = variable?.scope.variables[variable.name];
+		if (!reference) return null;
+
+		return reference.ranges.map(range => ({ range })); // TODO: kind DocumentHighlightKind.Read/Write
 	}
 //#endregion
 
@@ -200,6 +207,7 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 		connection.onDocumentSymbol(this.handleOnDocumentSymbol.bind(this));
 		connection.onCompletion(this.handleOnCompletion.bind(this));
 		connection.onCompletionResolve(this.handleOnCompletionResolve.bind(this));
+		connection.onDocumentHighlight(this.handleOnDocumentHighlight.bind(this));
 	}
 
 //#region handlers (dispatches to the appropriate Document's handler)
@@ -241,6 +249,21 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 		if (!completionItem.data) return completionItem;
 		const document = this.cache.get(completionItem.data.uri);
 		return document?.handleOnCompletionResolve(completionItem) ?? completionItem;
+	}
+
+	private handleOnDocumentHighlight(documentHighlightParams: DocumentHighlightParams) {
+		const position = documentHighlightParams.position;
+		const uri = documentHighlightParams.textDocument.uri;
+
+		// the one instance of the class above (has the AST)
+		const document = this.cache.get(uri);
+		if (!document) return null;
+
+		// the one from the languageserver module (has the text)
+		const textDocument = this.get(uri);
+		if (!textDocument) return null;
+
+		return document.handleOnDocumentHighlight(findWordRange(textDocument, position));
 	}
 //#endregion
 
