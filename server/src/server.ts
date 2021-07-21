@@ -28,6 +28,10 @@ connection.onInitialize(params => {
 			hoverProvider: true,
 			documentSymbolProvider: true,
 			documentHighlightProvider: true,
+			signatureHelpProvider: {
+				triggerCharacters: [ '(', '[', '[', '"' ],
+				retriggerCharacters: [ ',' ],
+			}
 		},
 	};
 	if (settings.hasWorkspaceFolderCapability) {

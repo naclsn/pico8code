@@ -20,8 +20,10 @@ The Language Server activates for PICO-8 sources (.p8, text).
 ## Somewhat Important Points
 
  - no parsing recovery (stops on first syntax error)
- - no weird identifier for table keys and function params
+ - no type literal (eg. like `type A = 'da' | 'di' | 'do'` in TS)
  - inaccurate coloration for types (eg. in hovers)
+ - text document synchronization is not incremental
+ - no semantic tokens (eg. function name is of wrong color when it's not a call to it)
 
 # The Repo
 

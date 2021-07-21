@@ -1,20 +1,43 @@
 import { Range } from 'vscode-languageserver-textdocument';
 
-import { buildBinaryTree, delimitSubstring, flattenBinaryTree, splitCarefully } from '../util';
+import { buildBinaryTree, delimitSubstring, escapeLuaTableStringKey, flattenBinaryTree, splitCarefully } from '../util';
 
 export type LuaNil = 'nil'
 export type LuaNumber = 'number'
 export type LuaBoolean = 'boolean'
 export type LuaString = 'string'
-//export type LuaVararg = '...'
+//export type LuaVararg = '...' // TODO: probably remove
+
+export type LuaTypedKey = { type: LuaNumber | LuaBoolean | LuaString }
+export type LuaKey
+	= string
+	| number
+	| boolean
+	| LuaTypedKey
+
+export function isLuaTypedKey(key?: LuaKey): key is LuaTypedKey {
+	return !!(key && (key as LuaTypedKey).type);
+}
 
 export type LuaTable = {
-	entries: { [key: string]: LuaType }
+	entries: { [key: string]: LuaType },
+	sequence: { [index: number]: LuaType },
+	true?: LuaType,
+	false?: LuaType,
+	typed?: { [type in LuaTypedKey['type']]?: LuaType }
+}
+
+export function isLuaFunction(type?: LuaType): type is LuaFunction {
+	return !!(type && (type as LuaFunction).return);
 }
 
 export type LuaFunction = {
-	parameters: ({ name: string, type: LuaType })[],
+	parameters: { name: string, type: LuaType }[],
 	return: LuaType,
+}
+
+export function isLuaTable(type?: LuaType): type is LuaTable {
+	return !!(type && (type as LuaTable).entries);
 }
 
 //export type LuaTypeAlias = { alias: string, type: LuaType }
@@ -51,14 +74,6 @@ export type LuaScope = {
 export type LuaDoc = {
 	type?: LuaType,
 	text: string,
-}
-
-export function isLuaTable(type?: LuaType): type is LuaTable {
-	return !!(type && (type as LuaTable).entries);
-}
-
-export function isLuaFunction(type?: LuaType): type is LuaFunction {
-	return !!(type && (type as LuaFunction).return);
 }
 
 // export function isLuaTypeAlias(type?: LuaType): type is LuaTypeAlias {
@@ -120,9 +135,19 @@ export function represent(type: LuaType): string {
 	if (isLuaTable(type)) {
 		const entries = Object
 			.entries(type.entries)
-			.map(it => `${it[0]}: ${represent(it[1])}`)
+			.map(([key, _type]) => `${/^\d|\W/.test(key) || !key ? `["${escapeLuaTableStringKey(key)}"]` : key}: ${represent(_type)}`)
 			.join(", ");
-		return `{ ${entries} }`;
+		const sequence = Object
+			.entries(type.sequence)
+			.map(([key, _type]) => `[${key}]: ${represent(_type)}`)
+			.join(", ");
+		const true_ = type.true ? `[true]: ${represent(type.true)}` : "";
+		const false_ = type.false ? `[false]: ${represent(type.false)}` : "";
+		const typed = !type.typed ? "" : Object
+			.entries(type.typed)
+			.map(([keyType, _type]) => `[: ${keyType}]: ${represent(_type)}`) // XXX: label (?)
+			.join(", ");
+		return `{ ${[typed, true_, false_, entries, sequence].filter(_=>_).join(", ")} }`;
 	}
 
 	if (Object.prototype.hasOwnProperty.call(type, 'or')) {
@@ -188,22 +213,52 @@ export function parse(repr: string): LuaType {
 	// 	return { not: parse(repr.substr(1)) };
 	// }
 
-	// handles "{ key: type_repr_a, type_repr_b ... }"
+	// handles "{ key: type_repr_1, [expr]: type_repr_2, type_repr_3, ... }"
 	if ("{" === character && "}" === repr.charAt(repr.length-1)) {
 		const inner = splitCarefully(repr.substr(1, repr.length-2), ",");
 		let keyCounting = 1;
-		return {
-			entries: Object.fromEntries(inner
-				.map(it => {
-					const keyOrType_typeOrEmpty = splitCarefully(it, ":", 1);
-					if (keyOrType_typeOrEmpty[1]) {
-						const key = keyOrType_typeOrEmpty[0].trim();
-						const type = parse(keyOrType_typeOrEmpty[1]);
-						return [key, type];
-					} else return [keyCounting++, parse(it)];
-				})
-			),
+		const tableType: LuaTable = {
+			entries: {},
+			sequence: {},
 		};
+		inner.forEach(it => {
+			const keyOrType_typeOrEmpty = splitCarefully(it, ":", 1);
+			if (keyOrType_typeOrEmpty[1]) {
+				let key = keyOrType_typeOrEmpty[0].trim();
+				const type = parse(keyOrType_typeOrEmpty[1]);
+				if ("[" === key.charAt(0) && "]" === key.charAt(key.length-1)) {
+					// possible cases:
+					// [true] / [false]
+					// ["some complicated key"] / ['same idea']
+					// [label: key_type] with key_type 'string', 'number' or 'boolean'
+					const expr = key.substr(1, key.length-2).trim();
+					if ('true' === expr || 'false' === expr) {
+						tableType[expr] = type;
+						return; // ie. continue;
+					}
+					//if ('nil' === expr) return; // technically supported, but like...
+					if ("\"" === expr.charAt(0) && "\"" === expr.charAt(expr.length-1)
+					|| "'" === expr.charAt(0) && "'" === expr.charAt(expr.length-1)) {
+						key = expr.substr(1, expr.length-2);
+						// Fall through to entries[]=;
+					} else {
+						// no need for `splitCarefully`, "label" should be a valid identifier anyway
+						const found = expr.indexOf(":");
+						if (found < 0) throw new SyntaxError(`Expected a table typed-key description near ${key}`);
+						//const label = it.substring(0, found).trim();
+						const keyType = parse(it.substring(found + 1));
+						if ('string' === keyType || 'number' === keyType || 'boolean' === keyType) {
+							if (!tableType.typed) tableType.typed = {};
+							tableType.typed[keyType] = type;
+							return; // ie. continue;
+						}
+						throw new TypeError(`Invalid typed ${it.substring(found + 1)} for a table typed-key`);
+					}
+				}
+				tableType.entries[key] = type;
+			} else tableType.sequence[keyCounting++] = parse(it);
+		});
+		return tableType;
 	}
 
 	// handles "[type_repr_a, type_repr_b]"
@@ -268,11 +323,23 @@ export function simplify(type: LuaType): LuaType {
 					.entries(type.entries)
 					.map(([key, type]) => [key, simplify(type)])
 				),
+			sequence: Object
+				.fromEntries(Object
+					.entries(type.sequence)
+					.map(([key, type]) => [key, simplify(type)])
+				),
+			true: type.true && simplify(type.true),
+			false: type.false && simplify(type.false),
+			typed: type.typed && {
+					string: type.typed.string && simplify(type.typed.string),
+					number: type.typed.number && simplify(type.typed.number),
+					boolean: type.typed.boolean && simplify(type.typed.boolean),
+				},
 		};
 	}
 
 	if (Object.prototype.hasOwnProperty.call(type, 'or')) {
-		const flat = flattenBinaryTree(type, 'or')!.map(simplify);
+		const flat = flattenBinaryTree<'or', LuaType>(type, 'or')!.map(simplify);
 		const r: LuaType[] = [];
 
 		for (let k = 0; k < flat.length; k++) {
@@ -411,8 +478,8 @@ export function equivalent(typeA: LuaType, typeB: LuaType): boolean {
 	// OK, so this might not be enough to compare unions in general,
 	// but should be a start _for simplified types_ (ie. results from `simplify`)
 	if (unionTypeA && unionTypeB) {
-		const flattenA = flattenBinaryTree(unionTypeA, 'or') as LuaType[];
-		const flattenB = flattenBinaryTree(unionTypeB, 'or') as LuaType[];
+		const flattenA = flattenBinaryTree<'or', LuaType>(unionTypeA, 'or')!;
+		const flattenB = flattenBinaryTree<'or', LuaType>(unionTypeB, 'or')!;
 		// @thanks https://stackoverflow.com/a/29759699/13196480
 		// this is why here has to use the sad solution of arrays and O(n^1268721)
 

@@ -3,7 +3,7 @@ import { Diagnostic, DiagnosticSeverity, DocumentSymbol, SymbolKind, SymbolTag }
 import { Range } from 'vscode-languageserver-textdocument';
 
 import { aug } from './augmented';
-import { LuaType, LuaScope, LuaDoc, parse, isLuaFunction, represent } from './typing';
+import { LuaType, LuaScope, LuaDoc, parse, isLuaFunction, represent, LuaKey, isLuaTypedKey, LuaTable, isLuaTable } from './typing';
 import { buildBinaryTree, locToRange, resolveListOfTypes } from '../util';
 
 /** @thanks https://stackoverflow.com/a/64469734/13196480 */
@@ -393,7 +393,7 @@ export class SelfExplore {
 				}
 			},
 
-			BreakStatement: (node) => { void 1; },
+			BreakStatement: (node) => { void 0; },
 
 			GotoStatement: ({ label, loc }) => {
 				if (!Object.prototype.hasOwnProperty.call(this.currentScope.labels, label.name))
@@ -563,15 +563,89 @@ export class SelfExplore {
 		//#endregion
 
 		//#region table
-			TableKey: (node) => { void 1; }, // TODO
+			TableKey: (node) => {
+				this.handlers[node.key.type](node.key as any);
+				this.handlers[node.value.type](node.value as any);
+				const augmented = node as aug.TableKey;
 
-			TableKeyString: (node) => { void 1; }, // TODO
+				const type = (node.key as aug.Expression).augType;
+				if ('string' === type || 'number' === type || 'boolean' === type) {
+					if ('StringLiteral' === node.key.type
+					|| 'NumericLiteral' === node.key.type
+					|| 'BooleanLiteral' === node.key.type)
+						augmented.augKey = node.key.value;
+					else augmented.augKey = { type }; // YYY: label (?)
+					console.log(node.key.type + " with value " + (node.key as any).value);
+				} else if ('nil' === type) augmented.augKey = null;
+				augmented.augType = (node.value as aug.Expression).augType ?? 'nil';
+			},
 
-			TableValue: (node) => { void 1; }, // TODO
+			TableKeyString: (node) => {
+				//this.handlers[node.key.type](node.key as any); // TODO
+				this.handlers[node.value.type](node.value as any);
+				const augmented = node as aug.TableKeyString;
+
+				augmented.augKey = node.key.name;
+				augmented.augType = (node.value as aug.Expression).augType ?? 'nil';
+			},
+
+			TableValue: (node) => {
+				this.handlers[node.value.type](node.value as any);
+				const augmented = node as aug.TableValue;
+
+				augmented.augKey = undefined;
+				augmented.augType = (node.value as aug.Expression).augType ?? 'nil';
+			},
 		//#endregion
 
 		//#region expressions
-			TableConstructorExpression: (node) => { void 1; }, // TODO
+			TableConstructorExpression: (node) => {
+				this.contextPush(node);
+					let keyCounting = 1;
+					const type: LuaTable = {
+						entries: {},
+						sequence: {},
+					};
+
+					node.fields.forEach((it, k) => {
+						this.handlers[it.type](it as any);
+						const augmented = it as aug.TableKey | aug.TableKeyString | aug.TableValue;
+
+						// null mean the key was the literal 'nil'
+						// in which case it can be retrieved anyways
+						if (null === augmented.augKey) return;
+
+						let t: LuaType;
+						if (Array.isArray(augmented.augType)) {
+							// if it's the last one and it doesn't have a key,
+							// its added to the sequence and may be multiple elements
+							if (node.fields.length-1 === k && undefined === augmented.augKey) {
+								augmented.augType.forEach(_it => {
+									type.sequence[keyCounting++] = _it;
+								});
+								return;
+							}
+							t = augmented.augType[0] ?? 'nil';
+						} else t = augmented.augType ?? 'nil';
+
+						if (undefined === augmented.augKey) {
+							augmented.augKey = keyCounting++;
+							type.sequence[augmented.augKey] = t;
+						} else if (isLuaTypedKey(augmented.augKey)) {
+							if (!type.typed) type.typed = {};
+							type.typed[augmented.augKey.type] = t;
+						}
+						else if ('string' === typeof augmented.augKey)
+							type.entries[augmented.augKey] = t;
+						else if ('number' === typeof augmented.augKey)
+							type.sequence[augmented.augKey] = t;
+						else if ('boolean' === typeof augmented.augKey)
+							type[augmented.augKey ? 'true' : 'false'] = t;
+					});
+
+					(node as aug.TableConstructorExpression).augType = type;
+				this.contextPop('TableConstructorExpression');
+			},
 
 			UnaryExpression: (node) => {
 				this.handlers[node.argument.type](node.argument as any);
@@ -655,6 +729,37 @@ export class SelfExplore {
 		//#region literals
 			StringLiteral: (node) => {
 				(node as aug.StringLiteral).augType = 'string';
+
+				if (!node.value) {
+					let value = node.rawInterrupted ?? node.raw;
+					if ("\"" === value.charAt(0) || "'" === value.charAt(0)) {
+						value = value.substr(1, value.length-2).replace(/\\(["'\\nr]|u202[89])/g, (_, character) => {
+							switch (character) {
+								case "\"":
+								case "'":
+								case "\\":
+									return character;
+								case "n":
+									return "\n";
+								case "r":
+									return "\r";
+								case "u2028":
+									return "\u2028";
+								case "u2029":
+									return "\u2029";
+							}
+							return "";
+						});
+					} else {
+						let k = 0;
+						while ("=" === value.charAt(++k));
+						value = value.substr(++k, value.length-2*k);
+					}
+
+					// XXX: ugh, probably it should not modify the tree, only supposed to augment it;
+					// proper fix would be to use an actual encoding when parsing the file...
+					node.value = value;
+				}
 			},
 
 			NumericLiteral: (node) => {

@@ -1,5 +1,5 @@
 import { parse, Options as ParseOptions, SyntaxError as ParseError } from 'pico8parse';
-import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent, CompletionParams, CompletionItem as BaseCompletionItem, CompletionContext, DocumentSymbol, Diagnostic, CompletionItemKind, DocumentHighlightParams, DocumentHighlight, DocumentHighlightKind } from 'vscode-languageserver';
+import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent, CompletionParams, CompletionItem as BaseCompletionItem, CompletionContext, DocumentSymbol, Diagnostic, CompletionItemKind, DocumentHighlightParams, DocumentHighlight, SignatureHelpParams, SignatureHelp } from 'vscode-languageserver';
 import { Position, Range, TextDocument } from 'vscode-languageserver-textdocument';
 
 import { LUTScopes, LUTVariables, SelfExplore } from './document/explore';
@@ -127,6 +127,11 @@ export class Document extends SelfExplore {
 
 		return reference.ranges.map(range => ({ range })); // TODO: kind DocumentHighlightKind.Read/Write
 	}
+
+	handleOnSignatureHelp(position: Position, context?: CompletionContext): SignatureHelp | null {
+		// TODO: (and this also goes for completion) `super.lut[Functions, Tables]`
+		return null;
+	}
 //#endregion
 
 //#region backup LUTs for parse failures
@@ -196,7 +201,8 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 	 * 
 	 * from `DocumentsManager`:
 	 * 
-	 * `onHover`, `onDocumentSymbol` [, `onCompletion` and `onCompletionResolve` (not yet)]
+	 * `onHover`, `onDocumentSymbol` , `onCompletion`, `onCompletionResolve`,
+	 * `onDocumentHighlight` and `onSignatureHelp`
 	 */
 	listen(connection: Connection) {
 		super.listen(connection);
@@ -208,6 +214,7 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 		connection.onCompletion(this.handleOnCompletion.bind(this));
 		connection.onCompletionResolve(this.handleOnCompletionResolve.bind(this));
 		connection.onDocumentHighlight(this.handleOnDocumentHighlight.bind(this));
+		connection.onSignatureHelp(this.handleOnSignatureHelp.bind(this));
 	}
 
 //#region handlers (dispatches to the appropriate Document's handler)
@@ -264,6 +271,11 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 		if (!textDocument) return null;
 
 		return document.handleOnDocumentHighlight(findWordRange(textDocument, position));
+	}
+
+	private handleOnSignatureHelp(signatureHelpParams: SignatureHelpParams) {
+		const document = this.cache.get(signatureHelpParams.textDocument.uri);
+		return document?.handleOnSignatureHelp(signatureHelpParams.position, signatureHelpParams.context);
 	}
 //#endregion
 

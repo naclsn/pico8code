@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-namespace */
 /* eslint-disable @typescript-eslint/no-empty-interface */
 import type { ast } from 'pico8parse';
-import type { LuaFunction, LuaTable, LuaType } from './typing';
+import type { LuaFunction, LuaKey, LuaTable, LuaType } from './typing';
 
 export namespace aug {
 
@@ -71,11 +71,20 @@ export namespace aug {
 		augType?: LuaType; // TODO
 	}
 
-	export interface TableKey extends ast.TableKey { }
+	export interface TableKey extends ast.TableKey {
+		augType?: LuaType;
+		augKey?: LuaKey | null;
+	}
 
-	export interface TableKeyString extends ast.TableKeyString { }
+	export interface TableKeyString extends ast.TableKeyString {
+		augType?: LuaType;
+		augKey?: LuaKey | null;
+	}
 
-	export interface TableValue extends ast.TableValue { }
+	export interface TableValue extends ast.TableValue {
+		augType?: LuaType;
+		augKey?: LuaKey | null;
+	}
 
 	export interface TableConstructorExpression extends ast.TableConstructorExpression {
 		augType?: LuaType; // should be LuaTable // TODO

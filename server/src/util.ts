@@ -276,8 +276,8 @@ export function resolveListOfTypes(types: (LuaType | undefined)[]): LuaType[] {
  * @used `util.ts > resolveListOfTypes()`
  */
 function flattenType(type: LuaType | undefined): LuaType[] {
-	if (Object.prototype.hasOwnProperty.call(type, 'or')) {
-		const flat = flattenBinaryTree(type, 'or') ?? ['nil'];
+	if (type && Object.prototype.hasOwnProperty.call(type, 'or')) {
+		const flat = flattenBinaryTree<'or', LuaType>(type, 'or')!;
 
 		const r: LuaType[] = [];
 		let l = 0;
@@ -304,4 +304,34 @@ function flattenType(type: LuaType | undefined): LuaType[] {
 		return r;
 	}
 	return [type ?? 'nil'];
+}
+
+/**
+ * stolen from the `js-string-escape` npm module, adapted as needed
+ * 
+ * @thanks https://github.com/joliss/js-string-escape
+ * 
+ * @used `documents/ > typing.ts > represent()`
+ */
+export function escapeLuaTableStringKey(key: string) {
+	return key.replace(/["\\\n\r\u2028\u2029]/g, character => {
+		// Escape all characters not included in SingleStringCharacters and
+		// DoubleStringCharacters on
+		// http://www.ecma-international.org/ecma-262/5.1/#sec-7.8.4
+		switch (character) {
+			case "\"":
+			case "\\":
+				return "\\" + character;
+			// Four possible LineTerminator characters need to be escaped:
+			case "\n":
+				return "\\n";
+			case "\r":
+				return "\\r";
+			case "\u2028":
+				return "\\u2028";
+			case "\u2029":
+				return "\\u2029";
+		}
+		return "";
+	});
 }
