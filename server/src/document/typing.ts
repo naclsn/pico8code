@@ -6,7 +6,6 @@ export type LuaNil = 'nil'
 export type LuaNumber = 'number'
 export type LuaBoolean = 'boolean'
 export type LuaString = 'string'
-//export type LuaVararg = '...' // TODO: probably remove
 
 export type LuaTypedKey = { type: LuaNumber | LuaBoolean | LuaString }
 export type LuaKey
@@ -48,7 +47,6 @@ export type LuaType
 	| LuaNumber
 	| LuaBoolean
 	| LuaString
-	//| LuaVararg // TODO: probably remove
 	| LuaTable
 	| LuaFunction
 	| LuaType[]
@@ -81,6 +79,7 @@ export type LuaDoc = {
 // 	return !!(type && (type as LuaTypeAlias).alias);
 // }
 
+const MAX_DEPTH = 5;
 /**
  * ie. `toString()`
  * 
@@ -112,42 +111,46 @@ export type LuaDoc = {
  * ### unknown
  * possible unexpected result: ```"unknown`"+type+"`type"``` (subject to change)
  */
-export function represent(type: LuaType): string {
+export function represent(type: LuaType, depth?: number, typeFrom?: LuaType): string {
+	if (typeFrom === type) return '*circular*';
+	if (undefined === depth) return represent(type, 1); // for the typing :/
+	if (MAX_DEPTH < depth) return '*...*';
+
 	if ('string' === typeof type) return type;
 
 	if (Array.isArray(type)) {
 		const list = type
-			.map(represent)
+			.map(it => represent(it, depth+1, type))
 			.join(", ");
 		return `[${list}]`;
 	}
 
 	if (isLuaFunction(type)) {
 		const params = type.parameters
-			.map(it => `${it.name}: ${represent(it.type)}`)
+			.map(it => `${it.name}: ${represent(it.type, depth+1, type)}`)
 			.join(", ");
-		const vararg = type.vararg ? (params && ", ") + "...: " + represent(type.vararg) : "";
+		const vararg = type.vararg ? (params && ", ") + "...: " + represent(type.vararg, depth+1, type) : "";
 		// add "()" around type such as "a | b" to avoid returning
 		// "() -> a | b" which is equivalent to "(() -> a) | b"
 		const retComplex = Object.prototype.hasOwnProperty.call(type.return, 'or'); // || Object.prototype.hasOwnProperty.call(type.return, 'and');
-		const ret = retComplex ? `(${represent(type.return)})` : represent(type.return);
+		const ret = retComplex ? `(${represent(type.return, depth+1, type)})` : represent(type.return, depth+1, type);
 		return `(${params}${vararg}) -> ${ret}`;
 	}
 
 	if (isLuaTable(type)) {
 		const entries = Object
 			.entries(type.entries)
-			.map(([key, _type]) => `${/^\d|\W/.test(key) || !key ? `["${escapeLuaTableStringKey(key)}"]` : key}: ${represent(_type)}`)
+			.map(([key, _type]) => `${/^\d|\W/.test(key) || !key ? `["${escapeLuaTableStringKey(key)}"]` : key}: ${represent(_type, depth+1, type)}`)
 			.join(", ");
 		const sequence = Object
 			.entries(type.sequence)
-			.map(([key, _type]) => `[${key}]: ${represent(_type)}`)
+			.map(([key, _type]) => `[${key}]: ${represent(_type, depth+1, type)}`)
 			.join(", ");
-		const true_ = type.true ? `[true]: ${represent(type.true)}` : "";
-		const false_ = type.false ? `[false]: ${represent(type.false)}` : "";
+		const true_ = type.true ? `[true]: ${represent(type.true, depth+1, type)}` : "";
+		const false_ = type.false ? `[false]: ${represent(type.false, depth+1, type)}` : "";
 		const typed = !type.typed ? "" : Object
 			.entries(type.typed)
-			.map(([keyType, _type]) => `[: ${keyType}]: ${represent(_type)}`) // YYY: label (?)
+			.flatMap(([keyType, _type]) => !_type ? [] : [`[: ${keyType}]: ${represent(_type, depth+1, type)}`]) // YYY: label (?)
 			.join(", ");
 		const full = [typed, true_, false_, entries, sequence]
 			.filter(_=>_)
@@ -157,8 +160,8 @@ export function represent(type: LuaType): string {
 
 	if (Object.prototype.hasOwnProperty.call(type, 'or')) {
 		const [a, b] = (type as { or: [LuaType, LuaType] }).or;
-		const reprA = represent(a);
-		const reprB = represent(b);
+		const reprA = represent(a, depth+1, type);
+		const reprB = represent(b, depth+1, type);
 		return reprA + " | " + reprB;
 	}
 
@@ -316,46 +319,69 @@ export function parse(repr: string): LuaType {
  * 
  * @throws `TypeError`
  */
-export function simplify(type: LuaType): LuaType {
+export function simplify(type: LuaType, depth?: number, typeFrom?: LuaType, typeBuilding?: LuaType): LuaType {
+	if (typeFrom === type) return typeBuilding ?? type;
+	if (undefined === depth) return simplify(type, 1); // for the typing :/
+	if (MAX_DEPTH < depth) return type;
+
 	if ('string' === typeof type) return type;
 
 	if (Array.isArray(type)) {
-		return type.map(simplify);
+		const r: LuaType[] = [];
+		type.forEach(it => r.push(simplify(it, depth+1, type, r)));
+		return r;
 	}
 
 	if (isLuaFunction(type)) {
-		return {
-			parameters: type.parameters
-				.map(({ name, type }) => ({ name, type: simplify(type) })),
-			vararg: type.vararg && simplify(type.vararg),
-			return: simplify(type.return),
-		};
+		const r: LuaFunction = { parameters: [], return: 'nil' };
+		r.parameters = type.parameters
+			.map(({ name, type }) => ({ name, type: simplify(type, depth+1, type, r) }));
+		r.vararg = type.vararg && simplify(type.vararg, depth+1, type, r);
+		r.return = simplify(type.return, depth+1, type, r);
+		return r;
 	}
 
 	if (isLuaTable(type)) {
-		return {
-			entries: Object
-				.fromEntries(Object
-					.entries(type.entries)
-					.map(([key, type]) => [key, simplify(type)])
-				),
-			sequence: Object
-				.fromEntries(Object
-					.entries(type.sequence)
-					.map(([key, type]) => [key, simplify(type)])
-				),
-			true: type.true && simplify(type.true),
-			false: type.false && simplify(type.false),
-			typed: type.typed && {
-					string: type.typed.string && simplify(type.typed.string),
-					number: type.typed.number && simplify(type.typed.number),
-					boolean: type.typed.boolean && simplify(type.typed.boolean),
-				},
+		const r: LuaTable = {
+			entries: {},
+			sequence: {},
 		};
+		// if it seems to be an actual sequence,
+		// the `typed.number` is used to reflect this
+		const sequence = Object
+			.fromEntries(Object
+				.entries(type.sequence)
+				.map(([key, _type]) => [key, simplify(_type, depth+1, type, r)])
+			);
+		let typedNumber = type.typed?.number && simplify(type.typed.number, depth+1, type, r);
+
+		let keyCounting = 1;
+		if (sequence[keyCounting] && (!typedNumber || equivalent(sequence[keyCounting], typedNumber))) {
+			typedNumber = sequence[keyCounting];
+			delete sequence[keyCounting++];
+			while (equivalent(sequence[keyCounting], typedNumber))
+				delete sequence[keyCounting++];
+		}
+
+		r.entries = Object
+			.fromEntries(Object
+				.entries(type.entries)
+				.map(([key, _type]) => [key, simplify(_type, depth+1, type, r)])
+			);
+		r.sequence = sequence;
+		r.true = type.true && simplify(type.true, depth+1, type, r);
+		r.false = type.false && simplify(type.false, depth+1, type, r);
+		r.typed = (type.typed || typedNumber) && {
+				string: type.typed?.string && simplify(type.typed.string, depth+1, type, r),
+				number: typedNumber,
+				boolean: type.typed?.boolean && simplify(type.typed.boolean, depth+1, type, r),
+			};
+		return r;
 	}
 
 	if (Object.prototype.hasOwnProperty.call(type, 'or')) {
-		const flat = flattenBinaryTree<'or', LuaType>(type, 'or')!.map(simplify);
+		const flat = flattenBinaryTree<'or', LuaType>(type, 'or')!
+			.map(it => simplify(it, depth+1, type, type)); // XXX
 		const r: LuaType[] = [];
 
 		for (let k = 0; k < flat.length; k++) {
@@ -440,7 +466,10 @@ export function simplify(type: LuaType): LuaType {
  * XXX: this implementation probably has untested edge-cases
  * and is overall quite inefficient
  */
-export function equivalent(typeA: LuaType, typeB: LuaType): boolean {
+export function equivalent(typeA: LuaType, typeB: LuaType, depth?: number): boolean {
+	if (undefined === depth) return equivalent(typeA, typeB, 1); // for the typing :/
+	if (MAX_DEPTH < depth) return false;
+
 	if (typeA === typeB) return true;
 	if ('string' === typeof typeA || 'string' === typeof typeB) return false;
 
@@ -451,7 +480,7 @@ export function equivalent(typeA: LuaType, typeB: LuaType): boolean {
 		if (length !== arrayTypeB.length) return false;
 
 		for (let k = 0; k < length; k++)
-			if (!equivalent(arrayTypeA[k], arrayTypeB[k]))
+			if (!equivalent(arrayTypeA[k], arrayTypeB[k], depth+1))
 				return false;
 		return true;
 	}
@@ -465,10 +494,10 @@ export function equivalent(typeA: LuaType, typeB: LuaType): boolean {
 
 		// XXX: the function type comparison has no business accounting for names, right?
 		for (let k = 0; k < length; k++)
-			if (!equivalent(functionTypeA.parameters[k].type, functionTypeB.parameters[k].type))
+			if (!equivalent(functionTypeA.parameters[k].type, functionTypeB.parameters[k].type, depth+1))
 				return false;
 		// XXX: function comparison does not check for vararg equivalence
-		return equivalent(functionTypeA.return, functionTypeB.return);
+		return equivalent(functionTypeA.return, functionTypeB.return, depth+1);
 	}
 	if (functionTypeA || functionTypeB) return false;
 
@@ -483,7 +512,7 @@ export function equivalent(typeA: LuaType, typeB: LuaType): boolean {
 		for (let k = 0; k < lengthA; k++) {
 			const [key, type] = entriesA[k];
 			const it = tableTypeB.entries[key];
-			if (!it || !equivalent(type, it)) return false;
+			if (!it || !equivalent(type, it, depth+1)) return false;
 		}
 		return true;
 	}
@@ -512,7 +541,7 @@ export function equivalent(typeA: LuaType, typeB: LuaType): boolean {
 		// every type in `longest` must also be in `shortest`
 		for (let k = 0; k < lengthLong; k++) {
 			const it = longest[k];
-			const found = shortest.findIndex(e => equivalent(e, it));
+			const found = shortest.findIndex(e => equivalent(e, it, depth+1));
 			if (-1 === found) return false;
 			visited[found] = true;
 		}
@@ -520,7 +549,7 @@ export function equivalent(typeA: LuaType, typeB: LuaType): boolean {
 		// every type in `shortest` must also be in `longest`
 		for (let k = 0; k < lengthShort; k++) {
 			const it = shortest[k];
-			if (!visited[k] && !longest.find(e => equivalent(e, it)))
+			if (!visited[k] && !longest.find(e => equivalent(e, it, depth+1)))
 				return false;
 		}
 

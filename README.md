@@ -1,6 +1,10 @@
 # An Other PICO-8 VSCode Extension
 
+A first attempt at language support for PICO-8's Lua.
+
 Aims at being helpful.
+
+Barely functional, this likely won't be maintained and _potentially_ redesigned someday.
 
 ## Functionality
 
@@ -8,11 +12,10 @@ This extension aims at providing the following language features:
 
  - [x] [coloration](#coloration)
  - [ ] [diagnostics](#diagnostics)
- - [-] [completions](#completions)
+ - [x] [completions](#completions)
  - [x] [doc comments](#doc-comments)
  - [ ] [API-lookups](#api-lookups) (from [wiki](https://pico-8.fandom.com))
- - [-] [typing](#typing)
- - [ ] ["require"-like](#require-include) (multi-file project)
+ - [x] [typing](#typing)
 
 The Language Server activates for PICO-8 sources (.p8, text).
 
@@ -53,6 +56,6 @@ The Language Server activates for PICO-8 sources (.p8, text).
 └── package.json           // the extension manifest
 ```
 
-## Powered
+## Powered By
 
 Relies on the [pico8parse](https://github.com/PictElm/pico8parse) and the [vscode-languageserver/node](https://github.com/Microsoft/vscode-languageserver-node).

@@ -7,7 +7,21 @@
 	"name": "Pico8",
 	"patterns": [
 		{
+			"match": "pico-8 cartridge",
+			"name": "keyword.control.lua"
+		},
+		{
 			"begin": "^__lua__$",
+			"beginCaptures": {
+				"0": {
+					"name": "keyword.control.lua"
+				}
+			},
+			"endCaptures": {
+				"0": {
+					"name": "keyword.control.lua"
+				}
+			},
 			"end": "^__(?!lua).{3,5}__$",
 			"patterns": [
 				{
@@ -184,6 +198,10 @@
 					"name": "keyword.operator.lua"
 				}
 			]
+		},
+		{
+			"match": "^__(?!lua).{3,5}__$",
+			"name": "keyword.control.lua"
 		}
 	],
 	"scopeName": "source.p8",

@@ -1,7 +1,7 @@
 import { ast } from 'pico8parse';
 import { Position, Range, TextDocument } from 'vscode-languageserver-textdocument';
 
-import { LuaDoc, LuaType, represent } from './document/typing';
+import { LuaDoc, LuaType, represent, simplify } from './document/typing';
 
 /**
  * @used `document/ > explore.ts > SelfExplore{} > constructor > this.handlers`
@@ -49,6 +49,7 @@ export function findWordRange(document: TextDocument, position: Position): Range
 
 	// extract the line from the document
 	const line = document.getText(range);
+	range.end.line--;
 
 	// extract the word from the line
 	let start = position.character;
@@ -175,9 +176,11 @@ export function representVariableHover(tag: string, name: string, type: LuaType,
 	// 	]),
 	// ].join("\r\n");
 
+	const repr = represent(simplify(type));
+
 	return [
 		"```typescript", // will at least get _some_ of it right...
-		`(${tag}) ${name}: ${represent(type)}`,
+		`(${tag}) ${name}: ${repr}`,
 		"```",
 		...(!doc ? [] : [
 			" ",

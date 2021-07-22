@@ -1,9 +1,9 @@
 import { parse, Options as ParseOptions, SyntaxError as ParseError } from 'pico8parse';
-import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent, CompletionParams, CompletionItem as BaseCompletionItem, CompletionContext, DocumentSymbol, Diagnostic, CompletionItemKind, DocumentHighlightParams, DocumentHighlight, SignatureHelpParams, SignatureHelp } from 'vscode-languageserver';
+import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent, CompletionParams, CompletionItem as BaseCompletionItem, CompletionContext, DocumentSymbol, Diagnostic, CompletionItemKind, DocumentHighlightParams, DocumentHighlight, SignatureHelpParams, SignatureHelp, CompletionTriggerKind, SignatureHelpContext } from 'vscode-languageserver';
 import { Position, Range, TextDocument } from 'vscode-languageserver-textdocument';
 
-import { LUTScopes, LUTVariables, SelfExplore } from './document/explore';
-import { isLuaFunction, represent } from './document/typing';
+import { LUTFunctions, LUTScopes, LUTTables, LUTVariables, SelfExplore } from './document/explore';
+import { isLuaFunction, isLuaTable, LuaDoc, LuaFunction, LuaTable, represent } from './document/typing';
 import { SettingsManager } from './settings';
 import { findWordRange, rangeContains, representVariableHover } from './util';
 
@@ -60,43 +60,71 @@ export class Document extends SelfExplore {
 		return {
 			contents: {
 				kind: 'markdown',
-				value: [
-					representVariableHover(found.scope.tag, found.name, found.type, found.doc),
-					/*-*/...(!found.info ?  [] : [
-						" ",
-						"---",
-						"```",
-						...found.info,
-						"```",
-					]),
-				].join("\n"),
+				value: representVariableHover(found.scope.tag, found.name, found.type, found.doc),
 			},
 		};
 	}
 
 	handleOnDocumentSymbol(): DocumentSymbol[] | null {
-		return this.symbols; // TODO/XXX: languageserver throws when this has circular references (which it can, which is the thing to fix)
+		return this.symbols;
 	}
 
-	handleOnCompletion(position: Position, context?: CompletionContext): CompletionItem[] | null {
-		const found = this.findScope(position);
-		if (!found) return null; // XXX: always false because doesn't account for __lua__ section interruptions (ie. in __gfx__ is still in a scope)
+	handleOnCompletion(position: Position, identifier: string, context?: CompletionContext): CompletionItem[] | null {
+		if (CompletionTriggerKind.TriggerCharacter === context?.triggerKind) {
+			let found: LuaTable | undefined;
 
-		const list: CompletionItem[] = [];
-		for (const label in found.scope.variables) {
-			const it = found.scope.variables[label]!;
-			list.push({
-				label,
-				/*-*/documentation: it.ranges
-					.map((_it, k) => `${represent(it.types[k])} (${_it.start.line}:${_it.start.character} in ${it.scopes[k].tag})`)
-					.join(", "), // note: these references are "backward" (first of the list is last reference in document)
-				data: {
-					uri: this.uri,
-					recent: it.ranges[0].start,
-				},
-			});
+			if (identifier) {
+				const scope = this.findScope(position);
+				if (!scope) return null; // XXX: always false because doesn't account for __lua__ section interruptions (ie. in __gfx__ is still in a scope)
+
+				const variable = scope.scope.variables[identifier];
+				if (!variable) return null;
+
+				const k = 0;
+				let f = false;
+				while (k < variable.ranges.length) {
+					if (!f) {
+						const it = variable.ranges[k].start;
+						f = it.line <= position.line && it.character <= position.character;
+					} else {
+						const it = variable.types[k];
+						if (isLuaTable(it)) {
+							found = it;
+							break;
+						}
+					}
+				}
+				if (!found) return null;
+			} else {
+				const table = this.findTable(position);
+				if (!table) return null;
+				found = table.type;
+			}
+
+			return Object
+				.entries(found.entries)
+				.map(([key, type]) => ({
+					label: key,
+					kind: CompletionItemKind.Field,
+					detail: represent(type),
+				}));
+		} else {
+			const found = this.findScope(position);
+			if (!found) return null; // XXX: always false because doesn't account for __lua__ section interruptions (ie. in __gfx__ is still in a scope)
+
+			const list: CompletionItem[] = [];
+			for (const label in found.scope.variables) {
+				const it = found.scope.variables[label]!;
+				list.push({
+					label,
+					data: {
+						uri: this.uri,
+						recent: it.ranges[0].start,
+					},
+				});
+			}
+			return list;
 		}
-		return list;
 	}
 
 	handleOnCompletionResolve(item: CompletionItem): CompletionItem | null {
@@ -107,7 +135,9 @@ export class Document extends SelfExplore {
 		const type = found.doc?.type ?? found.type;
 		item.kind = isLuaFunction(type)
 			? CompletionItemKind.Function
-			: CompletionItemKind.Variable;
+			: isLuaTable(type)
+				? CompletionItemKind.Class
+				: CompletionItemKind.Variable;
 		item.detail = represent(type);
 		if (found.doc) item.documentation = {
 			kind: 'markdown',
@@ -128,30 +158,74 @@ export class Document extends SelfExplore {
 		return reference.ranges.map(range => ({ range })); // TODO: kind DocumentHighlightKind.Read/Write
 	}
 
-	handleOnSignatureHelp(position: Position, context?: CompletionContext): SignatureHelp | null {
-		// TODO: (and this also goes for completion) `super.lut[Functions, Tables]`
-		return null;
+	handleOnSignatureHelp(position: Position, identifier: string, context?: SignatureHelpContext): SignatureHelp | null {
+		let found: LuaFunction | undefined;
+		let doc: LuaDoc | undefined;
+
+		if (identifier && ')' !== identifier) {
+			const scope = this.findScope(position);
+			if (!scope) return null; // XXX: always false because doesn't account for __lua__ section interruptions (ie. in __gfx__ is still in a scope)
+
+			const variable = scope.scope.variables[identifier];
+			if (!variable) return null;
+
+			const k = 0;
+			let f = false;
+			while (k < variable.ranges.length) {
+				if (!f) {
+					const it = variable.ranges[k].start;
+					f = it.line <= position.line && it.character <= position.character;
+				} else {
+					const it = variable.types[k];
+					if (isLuaFunction(it)) {
+						found = it;
+						break;
+					}
+				}
+			}
+			if (!found) return null;
+		} else {
+			const fun = this.findFunction(position);
+			if (!fun) return null;
+			found = fun.type;
+			doc = fun.doc;
+		}
+
+		return {
+			signatures: [{
+				label: represent(found),
+				parameters: found.parameters.map(it => ({
+					label: it.name,
+					documentation: represent(it.type),
+				})),
+			}],
+			activeSignature: 0,
+			activeParameter: null,
+		};
 	}
 //#endregion
 
 //#region backup LUTs for parse failures
 	private lutBackupVariables?: LUTVariables;
 	private lutBackupScopes?: LUTScopes;
+	private lutBackupFunctions?: LUTFunctions;
+	private lutBackupTables?: LUTTables;
 
 	private backup() {
 		// with how super.reset() works, storing a simple reference
 		// to the old tables is sufficient as a backup
 		this.lutBackupVariables = this.lutVariables;
 		this.lutBackupScopes = this.lutScopes;
+		this.lutBackupFunctions = this.lutFunctions;
+		this.lutBackupTables = this.lutTables;
 	}
 
 	private restore() {
 		// note: if undefined here, that means the doc was never parsed...
-		if (this.lutBackupVariables) this.lutVariables = this.lutBackupVariables;
-		if (this.lutBackupScopes) this.lutScopes = this.lutBackupScopes;
-		// release the backup (?)
-		this.lutBackupVariables = undefined;
-		this.lutBackupScopes = undefined;
+		this.lutVariables = this.lutBackupVariables!;
+		this.lutScopes = this.lutBackupScopes!;
+		this.lutFunctions = this.lutBackupFunctions!;
+		this.lutTables = this.lutBackupTables!;
 	}
 //#endregion
 
@@ -174,8 +248,18 @@ export class Document extends SelfExplore {
 		// XXX: the pico8parse stops the main 'Chunk''s scope
 		// on the last _meaningful_ character, which means
 		// that following empty lines are not in any scope ;-;
-		return { scope: this.globalScope, range: undefined };
+		return this.lutScopes[0];
 		// `range` undefined: ie. whole file (for TextDocument.getText)
+	}
+
+	private findFunction(position: Position) {
+		const it = this.lutFunctions[`:${position.line}:${position.character-1}`];
+		if (it) return it;
+	}
+
+	private findTable(position: Position) {
+		const it = this.lutTables[`:${position.line}:${position.character}`];
+		if (it) return it;
 	}
 //#endregion
 
@@ -248,8 +332,21 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 	}
 
 	private handleOnCompletion(completionParams: CompletionParams) {
-		const document = this.cache.get(completionParams.textDocument.uri);
-		return document?.handleOnCompletion(completionParams.position, completionParams.context);
+		const position = completionParams.position;
+		const uri = completionParams.textDocument.uri;
+
+		// the one instance of the class above (has the AST)
+		const document = this.cache.get(uri);
+		if (!document) return null;
+
+		// the one from the languageserver module (has the text)
+		const textDocument = this.get(uri);
+		if (!textDocument) return null;
+
+		const identifierRange = findWordRange(textDocument, { line: position.line, character: position.character-2 });
+		const identifier = textDocument.getText(identifierRange);
+
+		return document?.handleOnCompletion(position, identifier, completionParams.context);
 	}
 
 	private handleOnCompletionResolve(completionItem: CompletionItem) {
@@ -274,8 +371,21 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 	}
 
 	private handleOnSignatureHelp(signatureHelpParams: SignatureHelpParams) {
-		const document = this.cache.get(signatureHelpParams.textDocument.uri);
-		return document?.handleOnSignatureHelp(signatureHelpParams.position, signatureHelpParams.context);
+		const position = signatureHelpParams.position;
+		const uri = signatureHelpParams.textDocument.uri;
+
+		// the one instance of the class above (has the AST)
+		const document = this.cache.get(uri);
+		if (!document) return null;
+
+		// the one from the languageserver module (has the text)
+		const textDocument = this.get(uri);
+		if (!textDocument) return null;
+
+		const identifierRange = findWordRange(textDocument, { line: position.line, character: position.character-2 });
+		const identifier = textDocument.getText(identifierRange);
+
+		return document?.handleOnSignatureHelp(position, identifier, signatureHelpParams.context);
 	}
 //#endregion
 

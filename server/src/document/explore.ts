@@ -3,7 +3,7 @@ import { Diagnostic, DiagnosticSeverity, DocumentSymbol, SymbolKind, SymbolTag }
 import { Range } from 'vscode-languageserver-textdocument';
 
 import { aug } from './augmented';
-import { LuaType, LuaScope, LuaDoc, parse, isLuaFunction, represent, isLuaTypedKey, LuaTable, isLuaTable } from './typing';
+import { LuaType, LuaScope, LuaDoc, parse, isLuaFunction, represent, isLuaTypedKey, LuaTable, isLuaTable, LuaFunction } from './typing';
 import { buildBinaryTree, locToRange, resolveListOfTypes } from '../util';
 
 /** @thanks https://stackoverflow.com/a/64469734/13196480 */
@@ -18,13 +18,26 @@ export type LUTVariables = { [startPos: string]: {
 	type: LuaType,
 	doc?: LuaDoc,
 	scope: LuaScope,
-	/*-*/info?: string[],
 } }
 
 export type LUTScopes = {
 	range: Range,
 	scope: LuaScope,
 }[]
+
+export type LUTFunctions = { [endPos: string]: {
+	range: Range,
+	type: LuaFunction,
+	doc?: LuaDoc,
+	scope: LuaScope,
+} }
+
+export type LUTTables = { [endPos: string]: {
+	range: Range,
+	type: LuaTable,
+	doc?: LuaDoc,
+	scope: LuaScope,
+} }
 
 export class SelfExplore {
 
@@ -46,6 +59,9 @@ export class SelfExplore {
 		this.currentScope = undefined!;
 
 		this.lutVariables = {};
+
+		this.lutFunctions = {};
+		this.lutTables = {};
 
 		this.contextStack = [];
 	}
@@ -167,7 +183,9 @@ export class SelfExplore {
 			this.currentSymbol.detail = detail;
 			this.currentSymbol.tags = tags;
 		} else throw new Error("How did we get here?\n" + `symbolExit, detail: ${detail}, tags: ${tags}`);
-		this.currentSymbol = this.currentSymbol.parent;
+		const parentSymbol = this.currentSymbol.parent;
+		delete this.currentSymbol.parent; // remove the circular references
+		this.currentSymbol = parentSymbol;
 	}
 //#endregion
 
@@ -263,18 +281,41 @@ export class SelfExplore {
 		return this.currentScope.variables[name];
 	}
 
-	private variableLocate(name: string, range: Range) {
+	private variableLocate(name: string, range: Range, shouldNotDoc?: boolean) {
 		const variable = this.variableLookup(name);
-		const doc = this.docMatching(range); // XXX: to have the doc change like the typing does: here lookup each range the var is at until the first docMatching or <BOF>
+		const doc = shouldNotDoc ? undefined : this.docMatching(range); // XXX: to have the doc change like the typing does: here lookup each range the var is at until the first docMatching or <BOF>
 		this.lutVariables[`:${range.start.line}:${range.start.character}`] = {
 			range,
 			name,
 			type: variable ? variable.types[0] : 'nil', // XXX: for now '0' ie. 'latest'
 			doc,
 			scope: variable?.scopes[0] ?? this.currentScope,
-			info: variable?.types.map((it, k) => `(${variable.scopes[k].tag}) ${represent(it)}`),
 		};
-		return range;
+	}
+//#endregion
+
+//#region other expressions
+	protected lutFunctions: LUTFunctions = {};
+	protected lutTables: LUTTables = {};
+
+	private functionLocate(type: LuaFunction, range: Range) {
+		const doc = this.docMatching(range);
+		this.lutFunctions[`:${range.end.line}:${range.end.character+1}`] = {
+			range,
+			type,
+			doc,
+			scope: this.currentScope,
+		};
+	}
+
+	private tableLocate(type: LuaTable, range: Range) {
+		const doc = this.docMatching(range);
+		this.lutTables[`:${range.end.line}:${range.end.character+1}`] = {
+			range,
+			type,
+			doc,
+			scope: this.currentScope,
+		};
 	}
 //#endregion
 
@@ -322,7 +363,8 @@ export class SelfExplore {
 					this.variableReference(node.name, locToRange(node.loc));
 				}
 
-				this.variableLocate(node.name, locToRange(node.loc));
+				const shouldNotDoc = !!(node as any).doNotTryToFindDocPlease;
+				this.variableLocate(node.name, locToRange(node.loc), shouldNotDoc);
 			},
 
 			FunctionDeclaration: (node) => {
@@ -341,18 +383,20 @@ export class SelfExplore {
 								const augmented = it as aug.Identifier | aug.VarargLiteral;
 								if ('Identifier' === augmented.type) {
 									// TODO: if already exist
-									this.variableDeclare(augmented.name, locToRange(it.loc), overrideType ? overrideType.parameters[k].type : 'nil'); // TODO: 'unknown' or something
-
+									this.variableDeclare(augmented.name, locToRange(it.loc), overrideType ? overrideType.parameters[k].type : 'nil'); // TODO: 'unknown'
+									(augmented as any).doNotTryToFindDocPlease = true;
 									this.handlers.Identifier(augmented);
+
 									return [{
 										name: augmented.name,
-										type: augmented.augType ?? 'nil',
+										type: augmented.augType ?? 'nil', // TODO: 'unknown'
 									}];
 								} else {
-									varargType = overrideType && overrideType.vararg || []; // TODO/XXX: en gros 'unknown'
-									augmented.augType = varargType;
+									varargType = overrideType && overrideType.vararg || []; // TODO: 'unknown'
 
+									augmented.augType = varargType;
 									this.handlers.VarargLiteral(augmented);
+
 									return [];
 								}
 							});
@@ -394,8 +438,12 @@ export class SelfExplore {
 						if ('Identifier' === node.identifier.type) {
 							if (node.isLocal) this.variableUpdate(node.identifier.name, identRange!, augmented.augType);
 							else this.variableUpdate(node.identifier.name, identRange!, augmented.augType, this.globalScope);
+						} else {
+							(node.identifier as aug.MemberExpression).augType = augmented.augType;
 						}
 						this.handlers[node.identifier.type](node.identifier as any);
+					} else {
+						this.functionLocate(augmented.augType, range);
 					}
 				this.symbolExit();
 			},
@@ -498,12 +546,12 @@ export class SelfExplore {
 				node.variables.forEach(it => {
 					const range = locToRange(it.loc);
 
-					if ('Identifier' === it.type) { // TODO
+					if ('Identifier' === it.type) {
 						// if 'name' is not visible from current scope
 						if (!this.variableLookup(it.name)) {
 							this.symbolEnter(it.name, SymbolKind.Object, range, range);
 								// declare globally
-								this.variableDeclare(it.name, range, 'nil', this.globalScope); // XXX/TODO: en gros 'unknown'/'unresolved'
+								this.variableDeclare(it.name, range, 'nil', this.globalScope); // TODO: 'unknown'
 								this.handlers.Identifier(it);
 							this.symbolExit();
 						}
@@ -520,7 +568,7 @@ export class SelfExplore {
 					const range = locToRange(it.loc);
 					const type = types[k] ?? 'nil';
 
-					if ('Identifier' === it.type) { // TODO
+					if ('Identifier' === it.type) {
 						// if 'name' is visible from current scope
 						const variable = this.variableLookup(it.name);
 						if (variable) {
@@ -534,6 +582,10 @@ export class SelfExplore {
 								this.handlers.Identifier(it);
 							this.symbolExit();
 						}
+					} else {
+						const augmented = it as aug.MemberExpression | aug.IndexExpression;
+						augmented.augType = type;
+						this.handlers[it.type](it as any);
 					}
 				});
 			},
@@ -546,12 +598,12 @@ export class SelfExplore {
 				node.variables.forEach(it => {
 					const range = locToRange(it.loc);
 
-					if ('Identifier' === it.type) { // TODO
+					if ('Identifier' === it.type) {
 						// if 'name' is not visible from current scope
 						if (!this.variableLookup(it.name)) {
 							this.symbolEnter(it.name, SymbolKind.Object, range, range);
 								// declare globally
-								this.variableDeclare(it.name, range, 'nil', this.globalScope); // XXX/TODO: en gros 'unknown'/'unresolved'
+								this.variableDeclare(it.name, range, 'nil', this.globalScope); // TODO: 'unknown'
 								this.handlers.Identifier(it);
 							this.symbolExit();
 						}
@@ -575,7 +627,7 @@ export class SelfExplore {
 					const range = locToRange(it.loc);
 					const type = types[k] ?? 'nil';
 
-					if ('Identifier' === it.type) { // TODO
+					if ('Identifier' === it.type) {
 						// if 'name' is visible from current scope
 						const variable = this.variableLookup(it.name);
 						if (variable) {
@@ -589,6 +641,10 @@ export class SelfExplore {
 								this.handlers.Identifier(it);
 							this.symbolExit();
 						}
+					} else {
+						const augmented = it as aug.MemberExpression | aug.IndexExpression;
+						augmented.augType = type;
+						this.handlers[it.type](it as any);
 					}
 				});
 			},
@@ -670,12 +726,19 @@ export class SelfExplore {
 			},
 
 			TableKeyString: (node) => {
-				//this.handlers[node.key.type](node.key as any); // TODO
 				this.handlers[node.value.type](node.value as any);
 				const augmented = node as aug.TableKeyString;
 
 				augmented.augKey = node.key.name;
 				augmented.augType = (node.value as aug.Expression).augType ?? 'nil';
+
+				const range = locToRange(node.key.loc);
+				this.lutVariables[`:${range.start.line}:${range.start.character}`] = {
+					range,
+					name: node.key.name,
+					type: augmented.augType,
+					scope: this.currentScope,
+				};
 			},
 
 			TableValue: (node) => {
@@ -733,6 +796,8 @@ export class SelfExplore {
 					});
 
 					(node as aug.TableConstructorExpression).augType = type;
+
+					this.tableLocate(type, locToRange(node.loc));
 				this.contextPop('TableConstructorExpression');
 			},
 
@@ -759,7 +824,6 @@ export class SelfExplore {
 				[node.left, node.right].map(it => this.handlers[it.type](it as any));
 				const augmented = node as aug.LogicalExpression;
 
-				// TODO: better or not at all (or something else)
 				const tyl = (node.left as aug.Expression).augType ?? 'nil';
 				const tyr = (node.right as aug.Expression).augType ?? 'nil';
 				if ('and' === node.operator) {
@@ -777,15 +841,26 @@ export class SelfExplore {
 				this.handlers[node.base.type](node.base as any);
 
 				const tbType = (node.base as aug.Expression).augType;
-
 				let type: LuaType = 'nil'; // XXX: en gros 'unknown'
-				if (isLuaTable(tbType))
-					type = tbType.entries?.[node.identifier.name] ?? 'nil';
-				(node as aug.MemberExpression).augType = type;
 
-				// XXX: experimental and doesn't work anyways
-				(node.identifier as aug.Identifier).augType = type;
-				this.handlers.Identifier(node.identifier);
+				const augmented = node as aug.MemberExpression;
+				if (!augmented.augType) {
+					if (isLuaTable(tbType))
+						type = tbType.entries[node.identifier.name] ?? 'nil';
+					augmented.augType = type;
+				} else {
+					if (isLuaTable(tbType))
+						tbType.entries[node.identifier.name] = augmented.augType;
+					type = augmented.augType;
+				}
+
+				const range = locToRange(node.identifier.loc);
+				this.lutVariables[`:${range.start.line}:${range.start.character}`] = {
+					range,
+					name: node.identifier.name,
+					type,
+					scope: this.currentScope,
+				};
 			},
 
 			IndexExpression: (node) => {
@@ -795,10 +870,18 @@ export class SelfExplore {
 				const tbType = (node.base as aug.Expression).augType;
 				const keyType = (node.index as aug.Expression).augType;
 
-				let type: LuaType = 'nil'; // XXX: en gros 'unknown'
-				if (isLuaTable(tbType) && ('string' === keyType || 'number' === keyType || 'boolean' === keyType))
-					type = tbType.typed?.[keyType] ?? 'nil';
-				(node as aug.IndexExpression).augType = type;
+				const augmented = node as aug.IndexExpression;
+				if (!augmented.augType) {
+					let type: LuaType = 'nil'; // XXX: en gros 'unknown'
+					if (isLuaTable(tbType) && ('string' === keyType || 'number' === keyType || 'boolean' === keyType))
+						type = tbType.typed?.[keyType] ?? 'nil';
+					augmented.augType = type;
+				} else {
+					if (isLuaTable(tbType) && ('string' === keyType || 'number' === keyType || 'boolean' === keyType)) {
+						if (!tbType.typed) tbType.typed = {};
+						tbType.typed[keyType] = augmented.augType;
+					}
+				}
 			},
 
 			CallExpression: (node) => {
@@ -897,7 +980,7 @@ export class SelfExplore {
 						this.error("not in a function", locToRange(node.loc));
 						return;
 					}
-					augmented.augType = isLuaFunction(fun.augType) && fun.augType.vararg || []; // TODO/XXX: en gros 'unknown'
+					augmented.augType = isLuaFunction(fun.augType) && fun.augType.vararg || []; // TODO: 'unknown'
 				}
 			},
 		//#endregion

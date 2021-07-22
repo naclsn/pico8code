@@ -68,7 +68,7 @@ export namespace aug {
 	}
 
 	export interface VarargLiteral extends ast.VarargLiteral {
-		augType?: LuaType; // TODO
+		augType?: LuaType;
 	}
 
 	export interface TableKey extends ast.TableKey {
@@ -87,7 +87,7 @@ export namespace aug {
 	}
 
 	export interface TableConstructorExpression extends ast.TableConstructorExpression {
-		augType?: LuaType; // should be LuaTable // TODO
+		augType?: LuaType; // should be LuaTable
 	}
 
 	export interface UnaryExpression extends ast.UnaryExpression {
@@ -103,11 +103,11 @@ export namespace aug {
 	}
 
 	export interface MemberExpression extends ast.MemberExpression {
-		augType?: LuaType; // TODO
+		augType?: LuaType;
 	}
 
 	export interface IndexExpression extends ast.IndexExpression {
-		augType?: LuaType; // TODO
+		augType?: LuaType;
 	}
 
 	export interface CallExpression extends ast.CallExpression {
