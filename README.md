@@ -21,8 +21,11 @@ The Language Server activates for PICO-8 sources (.p8, text).
 
  - no parsing recovery (stops on first syntax error)
  - no type literal (eg. like `type A = 'da' | 'di' | 'do'` in TS)
- - inaccurate coloration for types (eg. in hovers)
- - text document synchronization is not incremental
+ - no typing for a function's return from within the function itself (because of `function a() return a end`)
+ - same with scope within init of assignments (like `a = function() return a end`)
+ - same with circular references (eg. `b = {} ; b[1] = b` &rarr; `b[1]: {}`)
+ - inaccurate coloration for types representations (eg. in hovers/completion)
+ - text document synchronization is not incremental (so quite heavy for larger size files)
  - no semantic tokens (eg. function name is of wrong color when it's not a call to it)
 
 # The Repo

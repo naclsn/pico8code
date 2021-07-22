@@ -33,6 +33,7 @@ export function isLuaFunction(type?: LuaType): type is LuaFunction {
 
 export type LuaFunction = {
 	parameters: { name: string, type: LuaType }[],
+	vararg?: LuaType,
 	return: LuaType,
 }
 
@@ -122,14 +123,15 @@ export function represent(type: LuaType): string {
 	}
 
 	if (isLuaFunction(type)) {
-		const param = type.parameters
+		const params = type.parameters
 			.map(it => `${it.name}: ${represent(it.type)}`)
 			.join(", ");
+		const vararg = type.vararg ? (params && ", ") + "...: " + represent(type.vararg) : "";
 		// add "()" around type such as "a | b" to avoid returning
 		// "() -> a | b" which is equivalent to "(() -> a) | b"
 		const retComplex = Object.prototype.hasOwnProperty.call(type.return, 'or'); // || Object.prototype.hasOwnProperty.call(type.return, 'and');
 		const ret = retComplex ? `(${represent(type.return)})` : represent(type.return);
-		return `(${param}) -> ${ret}`;
+		return `(${params}${vararg}) -> ${ret}`;
 	}
 
 	if (isLuaTable(type)) {
@@ -278,16 +280,26 @@ export function parse(repr: string): LuaType {
 		const arrow = repr.substr(paramEnd).indexOf("->");
 		const rets = parse(repr.substr(paramEnd + arrow + 2));
 
-		return {
+		let varargType: LuaType | undefined;
+
+		const fnType: LuaFunction = {
 			parameters: !params[0] ? [] : params
-				.map(it => {
+				.flatMap(it => {
 					const co = it.indexOf(":");
 					const name = it.substring(0, co).trim();
 					const type = parse(it.substring(co + 1));
-					return { name, type };
+
+					if ("..." === name) {
+						varargType = type;
+						return [];
+					}
+					return [{ name, type }];
 				}),
 			return: Array.isArray(rets) && 1 === rets.length ? rets[0] : rets, // ['type'] becomes 'type'
 		};
+
+		if (varargType) fnType.vararg = varargType;
+		return fnType;
 	}
 
 	throw new TypeError(`'${repr}' is not a recognized type representation`);
@@ -315,6 +327,7 @@ export function simplify(type: LuaType): LuaType {
 		return {
 			parameters: type.parameters
 				.map(({ name, type }) => ({ name, type: simplify(type) })),
+			vararg: type.vararg && simplify(type.vararg),
 			return: simplify(type.return),
 		};
 	}
@@ -454,6 +467,7 @@ export function equivalent(typeA: LuaType, typeB: LuaType): boolean {
 		for (let k = 0; k < length; k++)
 			if (!equivalent(functionTypeA.parameters[k].type, functionTypeB.parameters[k].type))
 				return false;
+		// XXX: function comparison does not check for vararg equivalence
 		return equivalent(functionTypeA.return, functionTypeB.return);
 	}
 	if (functionTypeA || functionTypeB) return false;

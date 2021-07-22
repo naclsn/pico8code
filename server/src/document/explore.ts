@@ -327,55 +327,73 @@ export class SelfExplore {
 
 			FunctionDeclaration: (node) => {
 				const range = locToRange(node.loc);
+				const identRange = node.identifier && locToRange(node.identifier.loc);
 
 				const doc = this.docMatching(range);
 				const overrideType = !!doc && isLuaFunction(doc.type) && doc.type;
+				let varargType: LuaType | undefined;
 
 				// XXX: selectionRange and such will need the identifier part to be processed before (or at least some of it)
 				this.symbolEnter('Identifier' === node.identifier?.type ? node.identifier.name : "<anonymous>", SymbolKind.Function, range, range);
 					this.contextPush(node);
 						const previousScope = this.scopeFork(range, "function line " + node.loc?.start.line);
-							const parameters = node.parameters.map((it, k) => {
+							const parameters = node.parameters.flatMap((it, k) => {
 								const augmented = it as aug.Identifier | aug.VarargLiteral;
-								let name = "...";
 								if ('Identifier' === augmented.type) {
-									name = augmented.name;
 									// TODO: if already exist
-									this.variableDeclare(name, locToRange(it.loc), overrideType ? overrideType.parameters[k].type : 'nil'); // TODO: 'unknown' or something
+									this.variableDeclare(augmented.name, locToRange(it.loc), overrideType ? overrideType.parameters[k].type : 'nil'); // TODO: 'unknown' or something
+
+									this.handlers.Identifier(augmented);
+									return [{
+										name: augmented.name,
+										type: augmented.augType ?? 'nil',
+									}];
+								} else {
+									varargType = overrideType && overrideType.vararg || []; // TODO/XXX: en gros 'unknown'
+									augmented.augType = varargType;
+
+									this.handlers.VarargLiteral(augmented);
+									return [];
 								}
-								this.handlers[augmented.type](augmented as any);
-								return {
-									name,
-									type: augmented.augType ?? 'nil',
-								};
 							});
+
+							const augmented = node as aug.FunctionDeclaration;
+
+							// partial: because the body is not processed, no idea about
+							// type for the returns (if not given through type hint/doc)
+							const partial = overrideType ? overrideType : { parameters, return: 'nil' as ('nil'), vararg: varargType }; // TODO: 'unknown'
+							augmented.augType = partial;
+
+							if ('Identifier' === node.identifier?.type) {
+								// TODO: if already exist (side note: a param will shadow the function)
+								if (node.isLocal) this.variableDeclare(node.identifier.name, identRange!, partial, previousScope);
+								else this.variableDeclare(node.identifier.name, identRange!, partial, this.globalScope);
+							}
+
 							node.body.forEach(it => this.handlers[it.type](it as any));
 						this.scopeRestore(previousScope);
 					this.contextPop('FunctionDeclaration');
 
-					// TODO: this actually really should be done first
+					if (overrideType) augmented.augType = overrideType;
+					else {
+						// join 'return's found as a union
+						const ret = !augmented.augReturns
+							? 'nil'
+							: buildBinaryTree(augmented.augReturns
+									.map(it => {
+										const list = resolveListOfTypes((it.arguments as aug.Expression[]).map(_it => _it.augType));
+										return 0 === list.length ? 'nil'
+											: 1 === list.length ? list[0]
+											: list;
+									}), 'or'
+								) ?? 'nil';
+						augmented.augType = { parameters, return: ret, vararg: varargType };
+					}
 
-					const augmented = node as aug.FunctionDeclaration;
-
-					// join 'return' found as a union
-					const ret = !augmented.augReturns
-						? 'nil'
-						: buildBinaryTree(augmented.augReturns
-								.map(it => {
-									const list = resolveListOfTypes((it.arguments as aug.Expression[]).map(_it => _it.augType));
-									return 0 === list.length ? 'nil'
-										: 1 === list.length ? list[0]
-										: list;
-								}), 'or'
-							) ?? 'nil';
-					const resolved = { parameters, return: ret };
-
-					augmented.augType = overrideType ? overrideType : resolved;
 					if (node.identifier) {
 						if ('Identifier' === node.identifier.type) {
-							// TODO: if already exist
-							if (node.isLocal) this.variableDeclare(node.identifier.name, locToRange(node.identifier.loc), augmented.augType);
-							else this.variableDeclare(node.identifier.name, locToRange(node.identifier.loc), augmented.augType, this.globalScope);
+							if (node.isLocal) this.variableUpdate(node.identifier.name, identRange!, augmented.augType);
+							else this.variableUpdate(node.identifier.name, identRange!, augmented.augType, this.globalScope);
 						}
 						this.handlers[node.identifier.type](node.identifier as any);
 					}
@@ -474,6 +492,24 @@ export class SelfExplore {
 			},
 
 			AssignmentStatement: (node) => {
+				// because the `variables` of an assignment are available
+				// from within any scope under a the `init`, even if a
+				// variable was not declared before the assignment
+				node.variables.forEach(it => {
+					const range = locToRange(it.loc);
+
+					if ('Identifier' === it.type) { // TODO
+						// if 'name' is not visible from current scope
+						if (!this.variableLookup(it.name)) {
+							this.symbolEnter(it.name, SymbolKind.Object, range, range);
+								// declare globally
+								this.variableDeclare(it.name, range, 'nil', this.globalScope); // XXX/TODO: en gros 'unknown'/'unresolved'
+								this.handlers.Identifier(it);
+							this.symbolExit();
+						}
+					}
+				});
+
 				const typesFromExpressions = node.init.map(it => {
 					this.handlers[it.type](it as any);
 					return (it as aug.Expression).augType ?? 'nil';
@@ -503,6 +539,25 @@ export class SelfExplore {
 			},
 
 			AssignmentOperatorStatement: (node) => {
+				// same as assignment operator statement
+				// because the `variables` of an assignment are available
+				// from within any scope under a the `init`, even if a
+				// variable was not declared before the assignment
+				node.variables.forEach(it => {
+					const range = locToRange(it.loc);
+
+					if ('Identifier' === it.type) { // TODO
+						// if 'name' is not visible from current scope
+						if (!this.variableLookup(it.name)) {
+							this.symbolEnter(it.name, SymbolKind.Object, range, range);
+								// declare globally
+								this.variableDeclare(it.name, range, 'nil', this.globalScope); // XXX/TODO: en gros 'unknown'/'unresolved'
+								this.handlers.Identifier(it);
+							this.symbolExit();
+						}
+					}
+				});
+
 				const typesFromExpressions = node.init.map(it => {
 					this.handlers[it.type](it as any);
 					return (it as aug.Expression).augType ?? 'nil';
@@ -835,8 +890,15 @@ export class SelfExplore {
 			},
 
 			VarargLiteral: (node) => {
-				const doc = this.docMatching(locToRange(node.loc));
-				(node as aug.VarargLiteral).augType = doc?.type ?? []; // TODO/XXX: en gros 'unknown'
+				const augmented = node as aug.VarargLiteral;
+				if (!augmented.augType) {
+					const fun = this.contextFind('FunctionDeclaration');
+					if (!fun) {
+						this.error("not in a function", locToRange(node.loc));
+						return;
+					}
+					augmented.augType = isLuaFunction(fun.augType) && fun.augType.vararg || []; // TODO/XXX: en gros 'unknown'
+				}
 			},
 		//#endregion
 		};
