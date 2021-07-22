@@ -1,4 +1,5 @@
 .ignore/
 out
+tmp
 node_modules
 .vscode-test

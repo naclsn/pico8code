@@ -1,0 +1,154 @@
+# next: commands
+cd
+dir
+export
+folder
+help
+import
+info
+install_demos
+install_games
+keyconfig
+load
+ls
+mkdir
+reboot
+resume
+run
+save
+shutdown
+splore
+
+# next: redefines
+_draw()
+_init()
+_update()
+_update60()
+
+# next: functions
+abs(x)
+add(t, v)
+all(t)
+assert(cond, [message])
+atan2(dx, dy)
+band(x, y)
+bnot(x)
+bor(x, y)
+btn([i], [p])
+btnp([i], [p])
+bxor(x, y)
+camera([x], [y])
+cartdata(id)
+ceil(x)
+chr(num)
+circ(x, y, r, [col])
+circfill(x, y, r, [col])
+clip([x], [y], [w], [h])
+cls()
+cocreate(func)
+color(col)
+coresume(cor, [...])
+cos(x)
+costatus(cor)
+count(tbl, [v])
+cstore(dest_addr, source_addr, len, [filename])
+cursor([x], [y], [col])
+del(t, v)
+deli(t, i)
+dget(index)
+dset(index, value)
+exit() # no-doc, no-wiki, no-run
+extcmd(cmd)
+fget(n, [f])
+fillp([pat])
+flip()
+flr(x)
+foreach(t, f)
+fset(n, [f], [v])
+getmetatable(tbl)
+holdframe() # no-doc
+line(x0, y0, x1, y1, [col])
+map(cel_x, cel_y, sx, sy, cel_w, cel_h, [layer])
+mapdraw(cel_x, cel_y, sx, sy, cel_w, cel_h, [layer]) # deprecated
+max(x, y)
+memcpy(dest_addr, source_addr, len)
+memset(dest_addr, val, len)
+menuitem(index, [label], [callback])
+mget(x, y)
+mid(x, y, z)
+min(x, y)
+mset(x, y, v)
+music([n], [fade_len], [channel_mask])
+ord(str, [index])
+oval(x0, y0, x1, y1, [col])
+ovalfill(x0, y0, x1, y1, [col])
+pack([...])
+pairs(t)
+pal([c0], [c1], [p])
+palt([c], [t])
+peek(addr)
+pget(x, y)
+poke(addr, val)
+print(str, [x], [y], [col])
+printh(str, [filename], [overwrite])
+pset(x, y, [c])
+rawequal(tbl1, tbl2)
+rawget(tbl, member)
+rawlen(tbl)
+rawset(tbl, member, value)
+rect(x0, y0, x1, y1, [col])
+rectfill(x0, y0, x1, y1, [col])
+reload(dest_addr, source_addr, len, [filename])
+rnd(x)
+select(index, [...])
+setmetatable(tbl, metatbl)
+sfx(n, [channel], [offset])
+sget(x, y)
+sgn(x)
+shl(x, y)
+shr(x, y)
+sin(x)
+split(str, [separator], [convert_numbers])
+spr(n, x, y, [w], [h], [flip_x], [flip_y])
+sqrt(x)
+srand(x)
+sset(x, y, [c])
+sspr(sx, sy, sw, sh, dx, dy, [dw], [dh], [flip_x], [flip_y])
+stat(n)
+stop()
+sub(str, from, [to])
+time()
+tonum(str)
+tostr(val, [usehex])
+trace()
+type(v)
+unpack(tbl, [i], [j])
+yield([...])
+
+# next: variables
+_ENV
+
+# ===
+
+## file:
+# contains a list of known api items (eg. function name)
+# a mention 'next: xyz' tags every following lines
+# other inline mentions:
+#   no-doc: not documented (manual)
+#   no-wiki: no wiki entry
+#   no-run: no run time usage / disabled
+#   deprecated: says it all
+#
+## item types:
+# with parentheses: callable lua function with given parameters
+# with parentheses, starts with underscore: re-definable function
+# without parentheses: prompt command
+#
+## getting doc:
+# user-friendly: https://pico-8.fandom.com/wiki/%s
+# browser json: https://pico-8.fandom.com/api.php?action=parse&format=json&page=%s
+# machine json: https://pico-8.fandom.com/api.php?action=parse&format=json&prop=wikitext&page=%s
+#
+## TODO:
+# get command usages
+#
