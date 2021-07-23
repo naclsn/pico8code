@@ -6,7 +6,7 @@ Aims at being helpful.
 
 Barely functional, this likely won't be maintained and _potentially_ redesigned someday.
 
-To only have the coloration, enable the setting `pico8.parse.dontBother` (disables the diagnostics, completions, typing and such).
+To only have the coloration, see the setting `pico8.parse.dontBother` (disabling diagnostics, completions, typing and such).
 
 ## Functionality
 
