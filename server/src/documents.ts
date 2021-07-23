@@ -75,6 +75,8 @@ export class Document extends SelfExplore {
 
 //#region handlers
 	async handleOnDidChangeContent(textDocument: TextDocument): Promise<Diagnostic[] | null> {
+		if (true === (await this.manager.settings.getDocumentSettings(this.uri))?.parse?.dontBother) return null;
+
 		try {
 			this.backup();
 			console.log("======= Parsing document =======");

@@ -2,6 +2,7 @@ import { Connection, DidChangeConfigurationParams } from 'vscode-languageserver'
 
 interface Settings {
 	parse: {
+		dontBother: boolean,
 		defaultApiVersion: '0.2.1',// | '0.2.2',
 		preDefinedGlobals: string[],
 	};
@@ -12,6 +13,7 @@ interface Settings {
 
 const defaultSettings: Settings = {
 	parse: {
+		dontBother: false,
 		defaultApiVersion: '0.2.1',
 		preDefinedGlobals: [],
 	},

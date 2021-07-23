@@ -1,17 +1,21 @@
 {
 	"name": "pico8code",
-	"description": "not much to see here yet, come back later",
+	"description": "An attempt at language support for PICO-8's Lua",
 	"author": "Grenier Célestin",
 	"license": "MIT",
-	"version": "0.0.1",
+	"version": "0.0.2",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/PictElm/pico8code"
 	},
 	"publisher": "PictElm",
-	"categories": [],
+	"categories": [
+		"Programming Languages",
+		"Other"
+	],
 	"keywords": [
-		"multi-root ready"
+		"multi-root ready",
+		"pico8"
 	],
 	"engines": {
 		"vscode": "^1.43.0"
@@ -41,26 +45,20 @@
 			"type": "object",
 			"title": "PICO-8 Code",
 			"properties": {
+				"pico8.parse.dontBother": {
+					"description": "When enabled, the extension will not try to parse files to generate diagnostic/typing/completion...",
+					"type": "boolean",
+					"default": "false"
+				},
 				"pico8.parse.defaultApiVersion": {
 					"description": "Version of the PICO-8 API to use.",
-					"enum": [ "0.2.1", "0.2.2" ],
+					"enum": [ "0.2.1" ],
 					"default": "0.2.1"
 				},
 				"pico8.parse.preDefinedGlobals": {
 					"markdownDescription": "Define an additional list of global variables. Each entry should be a valid Lua identifier followed by a type annotation.\nExamples:\n* `add: (number, number) -> number`\n* `window: { width: number, height: number }`\n* `prop: () -> string | number`\n* `size: () -> [number, number]`",
 					"type": "array",
 					"default": []
-				},
-				"pico8.trace.server": {
-					"scope": "window",
-					"type": "string",
-					"enum": [
-						"off",
-						"messages",
-						"verbose"
-					],
-					"default": "off",
-					"description": "Traces the communication between VS Code and the language server."
 				}
 			}
 		}

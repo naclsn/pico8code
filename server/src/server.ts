@@ -47,20 +47,12 @@ connection.onInitialized(() => {
 		// Register for all configuration changes.
 		connection.client.register(DidChangeConfigurationNotification.type, undefined);
 	}
-	if (settings.hasWorkspaceFolderCapability) {
-		connection.workspace.onDidChangeWorkspaceFolders(event => {
-			//console.log("Workspace folder change event received:");
-			//console.log(" + '" + event.added.join("', '") + "'");
-			//console.log(" - '" + event.removed.join("', '") + "'");
-		});
-	}
+	//if (settings.hasWorkspaceFolderCapability) {
+	//	//connection.workspace.onDidChangeWorkspaceFolders(event => {});
+	//}
 });
 
-connection.onDidChangeWatchedFiles(change => {
-	//console.log("We received a file change event:");
-	//console.log(change.changes.length + " changes");
-	//change.changes.forEach(it => console.log(` * (${it.type}) ${it.uri}`));
-});
+//connection.onDidChangeWatchedFiles(change => {});
 
 settings.listen(connection);
 documents.listen(connection);

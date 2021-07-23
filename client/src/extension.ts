@@ -1,11 +1,11 @@
-import * as path from 'path';
-import { workspace, ExtensionContext } from 'vscode';
+import { join } from 'path';
+import { ExtensionContext } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
 
 let client: LanguageClient;
 
 export function activate(context: ExtensionContext) {
-	const serverModule = context.asAbsolutePath(path.join('server', 'out', 'server.js'));
+	const serverModule = context.asAbsolutePath(join('server', 'out', 'server.js'));
 	const debugOptions = { execArgv: ['--nolazy', '--inspect=6483'] };
 
 	const serverOptions: ServerOptions = {
@@ -15,10 +15,10 @@ export function activate(context: ExtensionContext) {
 
 	const clientOptions: LanguageClientOptions = {
 		documentSelector: [{ scheme: 'file', language: 'pico8' }],
-		synchronize: {
-			// Notify the server about file changes to '.pico8rc files contained in the workspace
-			fileEvents: workspace.createFileSystemWatcher('**/.pico8rc'),
-		},
+		//synchronize: {
+		//	// Notify the server about file changes to '.pico8rc files contained in the workspace
+		//	fileEvents: workspace.createFileSystemWatcher('**/.pico8rc'),
+		//},
 		markdown: { isTrusted: true },
 	};
 
