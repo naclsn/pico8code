@@ -45,6 +45,10 @@ export class Document extends SelfExplore {
 					}
 					return [];
 				}) ?? [];
+				if (additional.length) {
+					console.log("Found additional user pre-defined:");
+					console.dir(additional);
+				}
 				const base = join(__dirname, "..", "..", "api", "out");
 				readdir(base, (err, dirs) => {
 					if (err) reject(err);
@@ -54,7 +58,7 @@ export class Document extends SelfExplore {
 								.parse(readFileSync(join(base, dir, it)).toString())
 							)
 						);
-					api.push({ name: "?", type: 'whatever' as any, doc: "" });
+					api.push({ name: "?", type: 'any' as any, doc: "" });
 					const defs:{ name: string, type: LuaType, doc: string }[] = api.concat(additional);
 					defs.forEach(it => {
 						this.globalScope.variables[it.name] = {
@@ -75,7 +79,8 @@ export class Document extends SelfExplore {
 
 //#region handlers
 	async handleOnDidChangeContent(textDocument: TextDocument): Promise<Diagnostic[] | null> {
-		if (true === (await this.manager.settings.getDocumentSettings(this.uri))?.parse?.dontBother) return null;
+		const level = (await this.manager.settings.getDocumentSettings(this.uri))?.parse?.dontBother;
+		if ('only coloration' === level) return null;
 
 		try {
 			this.backup();
@@ -100,6 +105,8 @@ export class Document extends SelfExplore {
 				});
 			} else throw err;
 		}
+
+		if ('no diagnostics' === level) return null;
 		return this.diagnostics;
 	}
 
@@ -210,7 +217,6 @@ export class Document extends SelfExplore {
 
 	handleOnSignatureHelp(position: Position, identifier: string, context?: SignatureHelpContext): SignatureHelp | null {
 		let found: LuaFunction | undefined;
-		let doc: LuaDoc | undefined;
 
 		if (identifier && ')' !== identifier) {
 			const scope = this.findScope(position);
@@ -238,7 +244,6 @@ export class Document extends SelfExplore {
 			const fun = this.findFunction(position);
 			if (!fun) return null;
 			found = fun.type;
-			doc = fun.doc;
 		}
 
 		return {

@@ -2,7 +2,7 @@ import { Connection, DidChangeConfigurationParams } from 'vscode-languageserver'
 
 interface Settings {
 	parse: {
-		dontBother: boolean,
+		dontBother: "all" | "no diagnostics" | "only coloration",
 		defaultApiVersion: '0.2.1',// | '0.2.2',
 		preDefinedGlobals: string[],
 	};
@@ -13,7 +13,7 @@ interface Settings {
 
 const defaultSettings: Settings = {
 	parse: {
-		dontBother: false,
+		dontBother: "all",
 		defaultApiVersion: '0.2.1',
 		preDefinedGlobals: [],
 	},
@@ -21,7 +21,7 @@ const defaultSettings: Settings = {
 		server: 'verbose',
 	},
 };
-const propertiesSection = 'pico8Language' as const;
+const propertiesSection = 'pico8code' as const;
 
 export class SettingsManager extends Map<string, Settings> {
 

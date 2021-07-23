@@ -1,5 +1,5 @@
 import { join } from 'path';
-import { ExtensionContext } from 'vscode';
+import { commands, ExtensionContext } from 'vscode';
 import { LanguageClient, LanguageClientOptions, ServerOptions, TransportKind } from 'vscode-languageclient/node';
 
 let client: LanguageClient;
@@ -29,6 +29,7 @@ export function activate(context: ExtensionContext) {
 		clientOptions,
 	);
 
+	context.subscriptions.push(commands.registerCommand('pico8code.server.restart', () => client?.stop().then(() => client?.start())));
 	// Start the client. This will also launch the server
 	client.start();
 }

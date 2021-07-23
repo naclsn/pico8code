@@ -3,7 +3,7 @@ import { Diagnostic, DiagnosticSeverity, DocumentSymbol, SymbolKind, SymbolTag }
 import { Range } from 'vscode-languageserver-textdocument';
 
 import { aug } from './augmented';
-import { LuaType, LuaScope, LuaDoc, parse, isLuaFunction, represent, isLuaTypedKey, LuaTable, isLuaTable, LuaFunction } from './typing';
+import { LuaType, LuaScope, LuaDoc, parse, isLuaFunction, represent, isLuaTypedKey, LuaTable, isLuaTable, LuaFunction, equivalent } from './typing';
 import { buildBinaryTree, locToRange, resolveListOfTypes } from '../util';
 
 /** @thanks https://stackoverflow.com/a/64469734/13196480 */
@@ -240,8 +240,7 @@ export class SelfExplore {
 				ranges: [range],
 				scopes: [theScope],
 			};
-		} else throw new Error("How did we get here?\n" + `declare, name: ${name}, type: ${represent(type)}`);
-		// XXX: it was declared twice, that's how (eg. from two 'local's or a 'local' and a function param...)
+		}// else throw new Error("How did we get here?\n" + `declare, name: ${name}, type: ${represent(type)}`);
 	}
 
 	/**
@@ -255,7 +254,7 @@ export class SelfExplore {
 			variable.types.unshift(type);
 			variable.ranges.unshift(range);
 			variable.scopes.unshift(scope ?? this.currentScope);
-		} else throw new Error("How did we get here?\n" + `update, name: ${name}, type: ${represent(type)}`);
+		}// else throw new Error("How did we get here?\n" + `update, name: ${name}, type: ${represent(type)}`);
 	}
 
 	/**
@@ -271,7 +270,7 @@ export class SelfExplore {
 			variable.types.unshift(variable.types[0]);
 			variable.ranges.unshift(range);
 			variable.scopes.unshift(variable.scopes[0]);
-		} else throw new Error("How did we get here?\n" + `reference, name: ${name}, range: ${range.start.line}:${range.start.character}-${range.end.line}:${range.end.character}`);
+		}// else throw new Error("How did we get here?\n" + `reference, name: ${name}, range: ${range.start.line}:${range.start.character}-${range.end.line}:${range.end.character}`);
 	}
 
 	/**
@@ -381,9 +380,12 @@ export class SelfExplore {
 						const previousScope = this.scopeFork(range, "function line " + node.loc?.start.line);
 							const parameters = node.parameters.flatMap((it, k) => {
 								const augmented = it as aug.Identifier | aug.VarargLiteral;
+								const itRange = locToRange(it.loc);
 								if ('Identifier' === augmented.type) {
-									// TODO: if already exist
-									this.variableDeclare(augmented.name, locToRange(it.loc), overrideType ? overrideType.parameters[k].type : 'nil'); // TODO: 'unknown'
+									if (Object.prototype.hasOwnProperty.call(this.currentScope, augmented.name)) {
+										this.variableUpdate(augmented.name, itRange, overrideType ? overrideType.parameters[k].type : 'nil');
+										this.warning(`${augmented.name} is shadowing a previous local variable`, itRange);
+									} else this.variableDeclare(augmented.name, itRange, overrideType ? overrideType.parameters[k].type : 'nil'); // TODO: 'unknown'
 									(augmented as any).doNotTryToFindDocPlease = true;
 									this.handlers.Identifier(augmented);
 
@@ -409,35 +411,48 @@ export class SelfExplore {
 							augmented.augType = partial;
 
 							if ('Identifier' === node.identifier?.type) {
-								// TODO: if already exist (side note: a param will shadow the function)
-								if (node.isLocal) this.variableDeclare(node.identifier.name, identRange!, partial, previousScope);
-								else this.variableDeclare(node.identifier.name, identRange!, partial, this.globalScope);
+								if (Object.prototype.hasOwnProperty.call(this.currentScope, node.identifier.name)) {
+									this.variableUpdate(node.identifier.name, identRange!, partial);
+									this.warning(`${node.identifier.name} is shadowing a previous local variable`, identRange!);
+								} else {
+									if (node.isLocal) this.variableDeclare(node.identifier.name, identRange!, partial, previousScope);
+									else this.variableDeclare(node.identifier.name, identRange!, partial, this.globalScope);
+								}
 							}
 
 							node.body.forEach(it => this.handlers[it.type](it as any));
 						this.scopeRestore(previousScope);
 					this.contextPop('FunctionDeclaration');
 
-					if (overrideType) augmented.augType = overrideType;
-					else {
-						// join 'return's found as a union
-						const ret = !augmented.augReturns
-							? 'nil'
-							: buildBinaryTree(augmented.augReturns
-									.map(it => {
-										const list = resolveListOfTypes((it.arguments as aug.Expression[]).map(_it => _it.augType));
-										return 0 === list.length ? 'nil'
-											: 1 === list.length ? list[0]
-											: list;
-									}), 'or'
-								) ?? 'nil';
-						augmented.augType = { parameters, return: ret, vararg: varargType };
+					// join 'return's found as a union
+					const ret = !augmented.augReturns
+						? 'nil'
+						: buildBinaryTree(augmented.augReturns
+								.map(it => {
+									const list = resolveListOfTypes((it.arguments as aug.Expression[]).map(_it => _it.augType));
+									return 0 === list.length ? 'nil'
+										: 1 === list.length ? list[0]
+										: list;
+								}), 'or'
+							) ?? 'nil';
+					const resolved = { parameters, return: ret, vararg: varargType };
+
+					augmented.augType = overrideType ? overrideType : resolved;
+
+					if (overrideType && !equivalent(overrideType, resolved)) {
+						this.warning("signature is conflicting with the doc comment's type", identRange ?? range);
+						augmented.augReturns?.forEach(it => this.warning("signature is conflicting with the doc comment's type", locToRange(it.loc)));
 					}
 
 					if (node.identifier) {
 						if ('Identifier' === node.identifier.type) {
-							if (node.isLocal) this.variableUpdate(node.identifier.name, identRange!, augmented.augType);
-							else this.variableUpdate(node.identifier.name, identRange!, augmented.augType, this.globalScope);
+							if (Object.prototype.hasOwnProperty.call(this.currentScope, node.identifier.name)) {
+								this.variableUpdate(node.identifier.name, identRange!, augmented.augType);
+								this.warning(`${node.identifier.name} is shadowing a previous local variable`, identRange!);
+							} else {
+								if (node.isLocal) this.variableUpdate(node.identifier.name, identRange!, augmented.augType);
+								else this.variableUpdate(node.identifier.name, identRange!, augmented.augType, this.globalScope);
+							}
 						} else {
 							(node.identifier as aug.MemberExpression).augType = augmented.augType;
 						}
@@ -463,7 +478,7 @@ export class SelfExplore {
 
 			GotoStatement: ({ label, loc }) => {
 				if (!Object.prototype.hasOwnProperty.call(this.currentScope.labels, label.name))
-					this.warning("label not defined", locToRange(loc));
+					this.warning("label not defined or not visible", locToRange(loc));
 				else {
 					const range = locToRange(label.loc);
 					const line = this.currentScope.labels[label.name]?.start.line ?? 0;
@@ -532,9 +547,13 @@ export class SelfExplore {
 					const range = locToRange(it.loc);
 
 					this.symbolEnter(it.name, SymbolKind.Object, range, range);
-						// TODO: if already exist
-						this.variableDeclare(it.name, range, types[k] ?? 'nil');
-						this.handlers.Identifier(it);
+						if (Object.prototype.hasOwnProperty.call(this.currentScope, it.name)) {
+							this.variableUpdate(it.name, range, types[k] ?? 'nil');
+							this.warning(`${it.name} is already a local variable`, range);
+						} else {
+							this.variableDeclare(it.name, range, types[k] ?? 'nil');
+							this.handlers.Identifier(it);
+						}
 					this.symbolExit();
 				});
 			},
@@ -647,6 +666,9 @@ export class SelfExplore {
 						this.handlers[it.type](it as any);
 					}
 				});
+
+				if (2 !== node.variables.length + node.init.length)
+					this.warning("assignment operator statement with multiple elements may no behave as expected", locToRange(node.loc));
 			},
 
 			CallStatement: (node) => {
@@ -659,7 +681,14 @@ export class SelfExplore {
 				this.contextPush(node);
 					const previousScope = this.scopeFork(locToRange(node.loc), "for line " + node.loc?.start.line);
 						this.handlers.Identifier(node.variable);
-						[node.start, node.end, node.step].map(it => it && this.handlers[it.type](it as any));
+						[node.start, node.end, node.step].forEach(it => {
+							if (it) {
+								this.handlers[it.type](it as any);
+								const augmented = it as aug.Expression;
+								if (augmented.augType && ('number' !== augmented.augType || 'any' !== augmented.augType as any))
+									this.warning(`expected a number, got ${represent(augmented.augType)}`, locToRange(it.loc));
+							}
+						});
 
 						node.body.forEach(it => this.handlers[it.type](it as any));
 					this.scopeRestore(previousScope);
@@ -669,7 +698,7 @@ export class SelfExplore {
 			ForGenericStatement: (node) => {
 				this.contextPush(node);
 					const previousScope = this.scopeFork(locToRange(node.loc), "for line " + node.loc?.start.line);
-						node.variables.map(it => this.handlers[it.type](it as any));
+						node.variables.map(it => this.handlers.Identifier(it));
 						node.iterators.map(it => this.handlers[it.type](it as any)); // XXX
 
 						node.body.forEach(it => this.handlers[it.type](it as any));
@@ -682,6 +711,9 @@ export class SelfExplore {
 			IfClause: (node) => {
 				this.contextPush(node);
 					this.handlers[node.condition.type](node.condition as any);
+					const augmented = node.condition as aug.Expression;
+					if (augmented.augType && 'nil' === augmented.augType)
+						this.warning("condition seems to be always 'nil'", locToRange(augmented.loc));
 
 					const previousScope = this.scopeFork(locToRange(node.loc), "if line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
@@ -692,6 +724,9 @@ export class SelfExplore {
 			ElseifClause: (node) => {
 				this.contextPush(node);
 					this.handlers[node.condition.type](node.condition as any);
+					const augmented = node.condition as aug.Expression;
+					if (augmented.augType && 'nil' === augmented.augType)
+						this.warning("condition seems to be always 'nil'", locToRange(augmented.loc));
 
 					const previousScope = this.scopeFork(locToRange(node.loc), "elseif line " + node.loc?.start.line);
 						node.body.forEach(it => this.handlers[it.type](it as any));
@@ -721,7 +756,10 @@ export class SelfExplore {
 					|| 'BooleanLiteral' === node.key.type)
 						augmented.augKey = node.key.value;
 					else augmented.augKey = { type }; // YYY: label (?)
-				} else if ('nil' === type) augmented.augKey = null;
+				} else if ('nil' === type) {
+					this.warning("the table will not be indexable by 'nil'", locToRange(node.key.loc));
+					augmented.augKey = null;
+				}
 				augmented.augType = (node.value as aug.Expression).augType ?? 'nil';
 			},
 
@@ -803,6 +841,11 @@ export class SelfExplore {
 
 			UnaryExpression: (node) => {
 				this.handlers[node.argument.type](node.argument as any);
+
+				const augmented = node.argument as aug.Expression;
+				if (augmented.augType && 'not' !== node.operator && 'number' !== augmented.augType && 'any' !== augmented.augType as any)
+					this.warning(`expected a number, got ${represent(augmented.augType)}`, locToRange(augmented.loc));
+
 				(node as aug.UnaryExpression).augType = 'not' === node.operator
 					? 'boolean'
 					: 'number';
@@ -813,6 +856,21 @@ export class SelfExplore {
 				const isComparison = node.operator.endsWith("=")
 					|| node.operator.startsWith("<")
 					|| node.operator.startsWith(">");
+
+				if (isComparison && "==" === node.operator || "!=" === node.operator || "~=" === node.operator) {
+					const leftAugmented = node.left as aug.Expression;
+					const rightAugmented = node.right as aug.Expression;
+					if (leftAugmented.augType && rightAugmented.augType && 'any' !== leftAugmented.augType as any && 'any' !== rightAugmented.augType as any && !equivalent(leftAugmented.augType, rightAugmented.augType))
+						this.warning(`comparing different types ${represent(leftAugmented.augType)} and ${represent(rightAugmented.augType)}`, locToRange(node.loc));
+				} else if (isComparison || ".." !== node.operator) {
+					const leftAugmented = node.left as aug.Expression;
+					if (leftAugmented.augType && 'number' !== leftAugmented.augType && 'any' !== leftAugmented.augType as any)
+						this.warning(`expected a number, got ${represent(leftAugmented.augType)}`, locToRange(leftAugmented.loc));
+					const rightAugmented = node.right as aug.Expression;
+					if (rightAugmented.augType && 'number' !== rightAugmented.augType && 'any' !== rightAugmented.augType as any)
+						this.warning(`expected a number, got ${represent(rightAugmented.augType)}`, locToRange(rightAugmented.loc));
+				}
+
 				(node as aug.BinaryExpression).augType = isComparison
 					? 'boolean'
 					: ".." === node.operator
@@ -823,6 +881,15 @@ export class SelfExplore {
 			LogicalExpression: (node) => {
 				[node.left, node.right].map(it => this.handlers[it.type](it as any));
 				const augmented = node as aug.LogicalExpression;
+
+				const leftAugmented = node.left as aug.Expression;
+				const rightAugmented = node.right as aug.Expression;
+				if (leftAugmented.augType && rightAugmented.augType) {
+					if ('and' === node.operator && ('nil' === leftAugmented.augType || 'nil' === rightAugmented.augType))
+						this.warning("condition seems to be always 'nil'", locToRange(node.loc));
+					if ('or' === node.operator && ('nil' === leftAugmented.augType && 'nil' === rightAugmented.augType))
+						this.warning("condition seems to be always 'nil'", locToRange(node.loc));
+				}
 
 				const tyl = (node.left as aug.Expression).augType ?? 'nil';
 				const tyr = (node.right as aug.Expression).augType ?? 'nil';
@@ -842,6 +909,9 @@ export class SelfExplore {
 
 				const tbType = (node.base as aug.Expression).augType;
 				let type: LuaType = 'nil'; // XXX: en gros 'unknown'
+
+				if (tbType && !isLuaTable(tbType) && 'any' !== tbType as any)
+					this.warning(`expected a table, got ${represent(tbType)}`, locToRange(node.base.loc));
 
 				const augmented = node as aug.MemberExpression;
 				if (!augmented.augType) {
@@ -870,6 +940,11 @@ export class SelfExplore {
 				const tbType = (node.base as aug.Expression).augType;
 				const keyType = (node.index as aug.Expression).augType;
 
+				if (tbType && !isLuaTable(tbType) && 'any' !== tbType as any)
+					this.warning(`expected a table, got ${represent(tbType)}`, locToRange(node.base.loc));
+				if (keyType && ('string' !== typeof keyType || 'nil' === keyType))
+					this.warning(`expected a string, number or boolean, got ${represent(keyType)}`, locToRange(node.index.loc));
+
 				const augmented = node as aug.IndexExpression;
 				if (!augmented.augType) {
 					let type: LuaType = 'nil'; // XXX: en gros 'unknown'
@@ -889,11 +964,23 @@ export class SelfExplore {
 					this.handlers[node.base.type](node.base as any);
 
 					const fnType = (node.base as aug.Expression).augType;
-					(node as aug.CallExpression).augType = isLuaFunction(fnType)
-						? fnType.return
+					const yesFnType = isLuaFunction(fnType) ? fnType : undefined;
+
+					if (fnType && !yesFnType && 'any' !== fnType as any)
+						this.warning(`expected a function, got ${represent(fnType)}`, locToRange(node.base.loc));
+
+					(node as aug.CallExpression).augType = yesFnType
+						? yesFnType.return
 						: 'nil';
 
-					node.arguments.forEach(it => this.handlers[it.type](it as any));
+					node.arguments.forEach((it, k) => {
+						this.handlers[it.type](it as any);
+
+						const augmented = it as aug.Expression;
+						const expected = yesFnType && yesFnType.parameters[k]?.type || 'nil';
+						if (augmented.augType && yesFnType && !('any' === augmented.augType as any || 'any' === expected as any) && !equivalent(expected, augmented.augType))
+							this.warning(`expected ${represent(expected)}${'nil' === expected ? " (or nothing)" : ""}, got ${represent(augmented.augType)}`, locToRange(it.loc));
+					});
 				this.contextPop('CallExpression');
 			},
 
@@ -902,11 +989,21 @@ export class SelfExplore {
 					this.handlers[node.base.type](node.base as any);
 
 					const fnType = (node.base as aug.Expression).augType;
+					const yesFnType = isLuaFunction(fnType) ? fnType : undefined;
+
+					if (fnType && !isLuaFunction(fnType) && 'any' !== fnType as any)
+						this.warning(`expected a function, got ${represent(fnType)}`, locToRange(node.base.loc));
+
 					(node as aug.TableCallExpression).augType = isLuaFunction(fnType)
 						? fnType.return
 						: 'nil';
 
 					this.handlers[node.argument.type](node.argument as any);
+
+					const augmented = node.argument as aug.Expression;
+					const expected = yesFnType && yesFnType.parameters[0]?.type || 'nil';
+					if (augmented.augType && yesFnType && !('any' === augmented.augType as any || 'any' === expected as any) && !equivalent(expected, augmented.augType))
+						this.warning(`expected ${represent(expected)}${'nil' === expected ? " (or nothing)" : ""}, got ${represent(augmented.augType)}`, locToRange(node.argument.loc));
 				this.contextPop('TableCallExpression');
 			},
 
@@ -915,11 +1012,21 @@ export class SelfExplore {
 					this.handlers[node.base.type](node.base as any);
 
 					const fnType = (node.base as aug.Expression).augType;
+					const yesFnType = isLuaFunction(fnType) ? fnType : undefined;
+
+					if (fnType && !isLuaFunction(fnType) && 'any' !== fnType as any)
+						this.warning(`expected a function, got ${represent(fnType)}`, locToRange(node.base.loc));
+
 					(node as aug.StringCallExpression).augType = isLuaFunction(fnType)
 						? fnType.return
 						: 'nil';
 
 					this.handlers[node.argument.type](node.argument as any);
+
+					const augmented = node.argument as aug.Expression;
+					const expected = yesFnType && yesFnType.parameters[0]?.type || 'nil';
+					if (augmented.augType && yesFnType && !('any' === augmented.augType as any || 'any' === expected as any) && !equivalent(expected, augmented.augType))
+						this.warning(`expected ${represent(expected)}${'nil' === expected ? " (or nothing)" : ""}, got ${represent(augmented.augType)}`, locToRange(node.argument.loc));
 				this.contextPop('StringCallExpression');
 			},
 		//#endregion

@@ -45,26 +45,31 @@
 			"type": "object",
 			"title": "PICO-8 Code",
 			"properties": {
-				"pico8.parse.dontBother": {
+				"pico8code.parse.dontBother": {
 					"description": "When enabled, the extension will not try to parse files to generate diagnostic/typing/completion...",
-					"type": "boolean",
-					"default": "false"
+					"enum": [ "all", "no diagnostics", "only coloration" ],
+					"enumDescriptions": [ "enable everything", "disable the diagnostics", "have only the coloration" ],
+					"default": "all"
 				},
-				"pico8.parse.defaultApiVersion": {
+				"pico8code.parse.defaultApiVersion": {
 					"description": "Version of the PICO-8 API to use.",
 					"enum": [ "0.2.1" ],
 					"default": "0.2.1"
 				},
-				"pico8.parse.preDefinedGlobals": {
+				"pico8code.parse.preDefinedGlobals": {
 					"markdownDescription": "Define an additional list of global variables. Each entry should be a valid Lua identifier followed by a type annotation.\nExamples:\n* `add: (number, number) -> number`\n* `window: { width: number, height: number }`\n* `prop: () -> string | number`\n* `size: () -> [number, number]`",
 					"type": "array",
 					"default": []
 				}
 			}
+		},
+		"commands": {
+			"title": "PICO-8: Restart Language Server",
+			"command": "pico8code.server.restart"
 		}
 	},
 	"scripts": {
-		"vscode:prepublish": "npm run compile",
+		"vscode:prepublish": "npm run compile && node api/wiki_get.js",
 		"compile": "tsc -b",
 		"watch": "tsc -b -w",
 		"postinstall": "cd client && npm install && cd ../server && npm install && cd ..",

@@ -8,7 +8,7 @@ const fs = require('fs/promises');
 const path = require('path');
 const https = require('https');
 
-const tmp = true;
+const tmp = false;
 const file = process.argv[2] ?? path.join(__dirname, "pico8api.txt");
 const point = process.argv[3] ?? "https://pico-8.fandom.com/api.php";
 

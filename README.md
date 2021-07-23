@@ -27,6 +27,7 @@ The Language Server activates for PICO-8 sources (.p8, text).
  - not extensively tested, no QA
  - no parsing recovery (stops on first syntax error)
  - no type literal (eg. like `type A = 'da' | 'di' | 'do'` in TS)
+ - union types are not accounted for in type checking (diagnostics)
  - no typing for a function's return from within the function itself (because of `function a() return a end`)
  - same with scope within init of assignments (like `a = function() return a end`)
  - inaccurate coloration for types representations (eg. in hovers/completion)
@@ -45,7 +46,13 @@ Functions from the PICO-8 API are identified as being `support.class.lua` but th
 
 ## Diagnostics
 
-> wait for it
+Reports
+ - function signature conflicting with its documentation (if any)
+ - parameter type not matching with the function's in call expression
+ - where a number was expected (eg. in operations like `a + b`)
+ - where a table was expected (eg. in `c["key"]` or `c.key`)
+ - where a function was expected (eg. in `d()`, `d{}`...)
+ - potentially unwanted shadowing/multiple local definitions (apparently not)
 
 ## Completions
 
@@ -159,3 +166,9 @@ Of course the type can be a table or a function:
 ## Powered By
 
 Relies on the [pico8parse](https://github.com/PictElm/pico8parse) and the [vscode-languageserver/node](https://github.com/Microsoft/vscode-languageserver-node).
+
+---
+
+> * `TODO` count: 19
+> * `XXX` count: 29
+> * `as any` count: 63
