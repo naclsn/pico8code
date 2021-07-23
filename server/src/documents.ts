@@ -1,11 +1,13 @@
-import { parse, Options as ParseOptions, SyntaxError as ParseError } from 'pico8parse';
+import { readdir, readdirSync, readFileSync } from 'fs';
+import { join } from 'path';
+import { parse as parseLua, Options as ParseOptions, SyntaxError as ParseError } from 'pico8parse';
 import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent, CompletionParams, CompletionItem as BaseCompletionItem, CompletionContext, DocumentSymbol, Diagnostic, CompletionItemKind, DocumentHighlightParams, DocumentHighlight, SignatureHelpParams, SignatureHelp, CompletionTriggerKind, SignatureHelpContext } from 'vscode-languageserver';
 import { Position, Range, TextDocument } from 'vscode-languageserver-textdocument';
 
 import { LUTFunctions, LUTScopes, LUTTables, LUTVariables, SelfExplore } from './document/explore';
-import { isLuaFunction, isLuaTable, LuaDoc, LuaFunction, LuaTable, represent } from './document/typing';
+import { isLuaFunction, isLuaTable, LuaDoc, LuaFunction, LuaTable, LuaType, parse as parseType, represent } from './document/typing';
 import { SettingsManager } from './settings';
-import { findWordRange, rangeContains, representVariableHover } from './util';
+import { findWordRange, locToRange, rangeContains, representVariableHover } from './util';
 
 const parseOptions: Partial<ParseOptions> = {
 	luaVersion: 'PICO-8-0.2.1', // XXX: from option or from p8 file header
@@ -26,13 +28,59 @@ export class Document extends SelfExplore {
 		super();
 	}
 
+	defines() {
+		return new Promise<void>((resolve, reject) => {
+			this.manager.settings.getDocumentSettings(this.uri).then(settings => {
+				const additional = settings?.parse?.preDefinedGlobals?.flatMap(it => {
+					const co = it.indexOf(":");
+					if (-1 < co) {
+						const name = it.substring(0, co).trim();
+						const doc = "From pre-defined globals";
+						try {
+							const type = parseType(it.substring(co + 1));
+							return [{ name, type, doc }];
+						} catch {
+							return name ? [{ name, type: 'any' as any, doc }] : [];
+						}
+					}
+					return [];
+				}) ?? [];
+				const base = join(__dirname, "..", "..", "api", "out");
+				readdir(base, (err, dirs) => {
+					if (err) reject(err);
+					const api = dirs
+						.flatMap(dir => readdirSync(join(base, dir))
+							.map(it => JSON
+								.parse(readFileSync(join(base, dir, it)).toString())
+							)
+						);
+					api.push({ name: "?", type: 'whatever' as any, doc: "" });
+					const defs:{ name: string, type: LuaType, doc: string }[] = api.concat(additional);
+					defs.forEach(it => {
+						this.globalScope.variables[it.name] = {
+							ranges: [locToRange(undefined)],
+							scopes: [this.globalScope],
+							types: [it.type],
+							doc: {
+								text: it.doc,
+								type: it.type,
+							},
+						};
+					});
+					resolve();
+				});
+			});
+		});
+	}
+
 //#region handlers
-	handleOnDidChangeContent(textDocument: TextDocument): Diagnostic[] | null {
+	async handleOnDidChangeContent(textDocument: TextDocument): Promise<Diagnostic[] | null> {
 		try {
 			this.backup();
 			console.log("======= Parsing document =======");
 			this.reset();
-			this.ast = parse(textDocument.getText(), parseOptions);
+			this.ast = parseLua(textDocument.getText(), parseOptions);
+			await this.defines();
 			this.explore();
 			console.log("------------- done -------------");
 		} catch (err) {
@@ -302,10 +350,10 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 	}
 
 //#region handlers (dispatches to the appropriate Document's handler)
-	private handleOnDidChangeContent(change: TextDocumentChangeEvent<TextDocument>) {
+	private async handleOnDidChangeContent(change: TextDocumentChangeEvent<TextDocument>) {
 		const uri = change.document.uri;
 		const document = this.cache.get(uri) ?? new Document(uri, this);
-		const diagnostics = document.handleOnDidChangeContent(change.document) ?? [];
+		const diagnostics = await document.handleOnDidChangeContent(change.document) ?? [];
 
 		this.cache.set(uri, document);
 		this.connection?.sendDiagnostics({ diagnostics, uri });

@@ -283,7 +283,7 @@ export class SelfExplore {
 
 	private variableLocate(name: string, range: Range, shouldNotDoc?: boolean) {
 		const variable = this.variableLookup(name);
-		const doc = shouldNotDoc ? undefined : this.docMatching(range); // XXX: to have the doc change like the typing does: here lookup each range the var is at until the first docMatching or <BOF>
+		const doc = variable?.doc ?? (shouldNotDoc ? undefined : this.docMatching(range));
 		this.lutVariables[`:${range.start.line}:${range.start.character}`] = {
 			range,
 			name,

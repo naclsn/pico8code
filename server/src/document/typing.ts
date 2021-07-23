@@ -62,6 +62,8 @@ export type LuaVariable = {
 	ranges: Range[],
 	// corresponding scopes
 	scopes: LuaScope[],
+	// whatever
+	doc?: LuaDoc,
 }
 
 export type LuaScope = {
@@ -112,11 +114,11 @@ const MAX_DEPTH = 5;
  * possible unexpected result: ```"unknown`"+type+"`type"``` (subject to change)
  */
 export function represent(type: LuaType, depth?: number, typeFrom?: LuaType): string {
+	if ('string' === typeof type) return type;
+
 	if (typeFrom === type) return '*circular*';
 	if (undefined === depth) return represent(type, 1); // for the typing :/
 	if (MAX_DEPTH < depth) return '*...*';
-
-	if ('string' === typeof type) return type;
 
 	if (Array.isArray(type)) {
 		const list = type
@@ -320,11 +322,11 @@ export function parse(repr: string): LuaType {
  * @throws `TypeError`
  */
 export function simplify(type: LuaType, depth?: number, typeFrom?: LuaType, typeBuilding?: LuaType): LuaType {
+	if ('string' === typeof type) return type;
+
 	if (typeFrom === type) return typeBuilding ?? type;
 	if (undefined === depth) return simplify(type, 1); // for the typing :/
 	if (MAX_DEPTH < depth) return type;
-
-	if ('string' === typeof type) return type;
 
 	if (Array.isArray(type)) {
 		const r: LuaType[] = [];
@@ -467,11 +469,11 @@ export function simplify(type: LuaType, depth?: number, typeFrom?: LuaType, type
  * and is overall quite inefficient
  */
 export function equivalent(typeA: LuaType, typeB: LuaType, depth?: number): boolean {
-	if (undefined === depth) return equivalent(typeA, typeB, 1); // for the typing :/
-	if (MAX_DEPTH < depth) return false;
-
 	if (typeA === typeB) return true;
 	if ('string' === typeof typeA || 'string' === typeof typeB) return false;
+
+	if (undefined === depth) return equivalent(typeA, typeB, 1); // for the typing :/
+	if (MAX_DEPTH < depth) return false;
 
 	const arrayTypeA = Array.isArray(typeA) ? typeA : false;
 	const arrayTypeB = Array.isArray(typeB) ? typeB : false;
