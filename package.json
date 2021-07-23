@@ -1,9 +1,10 @@
 {
 	"name": "pico8code",
 	"description": "An attempt at language support for PICO-8's Lua",
+	"icon": "client/img/icon.png",
 	"author": "Grenier Célestin",
 	"license": "MIT",
-	"version": "0.0.2",
+	"version": "0.0.3",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/PictElm/pico8code"
@@ -47,13 +48,23 @@
 			"properties": {
 				"pico8code.parse.dontBother": {
 					"description": "When enabled, the extension will not try to parse files to generate diagnostic/typing/completion...",
-					"enum": [ "all", "no diagnostics", "only coloration" ],
-					"enumDescriptions": [ "enable everything", "disable the diagnostics", "have only the coloration" ],
+					"enum": [
+						"all",
+						"no diagnostics",
+						"only coloration"
+					],
+					"enumDescriptions": [
+						"enable everything",
+						"disable the diagnostics",
+						"have only the coloration"
+					],
 					"default": "all"
 				},
 				"pico8code.parse.defaultApiVersion": {
 					"description": "Version of the PICO-8 API to use.",
-					"enum": [ "0.2.1" ],
+					"enum": [
+						"0.2.1"
+					],
 					"default": "0.2.1"
 				},
 				"pico8code.parse.preDefinedGlobals": {
@@ -69,7 +80,7 @@
 		}
 	},
 	"scripts": {
-		"vscode:prepublish": "npm run compile && node api/wiki_get.js",
+		"vscode:prepublish": "npm run compile && node ./api/wiki_get.js",
 		"compile": "tsc -b",
 		"watch": "tsc -b -w",
 		"postinstall": "cd client && npm install && cd ../server && npm install && cd ..",

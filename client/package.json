@@ -1,12 +1,12 @@
 {
-	"name": "pico8-please-languageserver-client",
-	"description": "nothing to see here yet, come back later",
+	"name": "pico8code-languageserver-client",
+	"description": "Client for the pico8code",
 	"author": "me",
 	"license": "MIT",
 	"version": "0.0.1",
 	"repository": {
 		"type": "git",
-		"url": "https://github.com/will_do_later"
+		"url": "https://github.com/PictElm/pico8code"
 	},
 	"publisher": "idk",
 	"engines": {

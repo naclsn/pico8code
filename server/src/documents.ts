@@ -94,8 +94,9 @@ export class Document extends SelfExplore {
 			this.restore();
 			console.log("Parsing failed, restoring backup");
 			if (err instanceof ParseError) {
-				const line = err.line-1;
-				const character = err.column;
+				// XXX: the @types/pico8parse is not up-to-date
+				const line = (err as any).line-1;
+				const character = (err as any).column;
 				this.diagnostics.push({
 					message: `${err.name}: ${err.message}`,
 					range: {

@@ -34,7 +34,7 @@ existing(path.join(__dirname, "out")).then(_=> {
  * @param {string[]} tags "no-doc", "no-wiki", "no-run", "deprecated"
  */
 function make(name, type, tags) {
-  (tags.includes("no-wiki")
+  (tags?.includes("no-wiki")
     ? Promise.resolve("")
     : tmp
       ? fs.readFile(path.join(__dirname, "tmp", type, name))
@@ -57,7 +57,7 @@ function make(name, type, tags) {
       const shortdesc = lines[2].substr(11).trim();
       let k = 3;
       const params = [];
-      while (!lines[k].includes("}}")) {
+      while (lines[k] && !lines[k].includes("}}")) {
         const [, name, optional, desc] = lines[k++].split("|");
         params.push({
           name, desc,
@@ -77,7 +77,7 @@ function make(name, type, tags) {
       const lines = data.split("\n");
       let k = 0;
       const sublist = [];
-      while (!lines[k].includes("==")) {
+      while (lines[k] && !lines[k].includes("==")) {
         const line = lines[k++].trim();
         if (line) sublist.push(line);
       }
