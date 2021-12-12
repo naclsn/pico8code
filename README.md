@@ -13,6 +13,7 @@ To only have the coloration, see the setting `pico8.parse.dontBother` (disabling
 This extension aims at providing the following language features:
 
  - [coloration](#coloration)
+ - [include](#include)
  - [diagnostics](#diagnostics)
  - [completions](#completions)
  - [doc comments](#doc-comments)
@@ -43,6 +44,26 @@ Lua code have syntactic coloration applied from after a line starting with `__lu
 This was originally stolen from the [pico8-vscode](https://github.com/joho/pico8-vscode) VS Code extension, although heavily modified.
 
 Functions from the PICO-8 API are identified as being `support.class.lua` but that's just so that they stand out.
+
+## Include
+
+PICO-8 relies on a preprocessor that supports a form of include directive:
+
+```
+pico-8 cartridge
+
+__lua__
+-- this will include `file.p8` which defines `cool_function`
+#include file.p8
+
+cool_function()
+```
+
+The behavior of this directive depends on the content of the target file; if it starts with a valid PICO-8 header (`pico-8 cartridge` anywhere on the first line) then only the `__lua__` sections are included, otherwise the whole file is included as code.
+
+Because this allow for very broken syntaxes that would require parsing the included file, the extension's underlying parser does not accept this directive. As a result, global variables and functions declared in the included file will not be accounted for by this extension. These may be added using the `pico8code.parse.preDefinedGlobals` setting when applicable.
+
+Note: the preprocessing does not resolve nested inclusions; any `#include` within the file `file.p8` in the example above will not be preprocessed and will probably throw a syntax error at runtime.
 
 ## Diagnostics
 

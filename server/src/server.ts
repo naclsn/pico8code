@@ -29,9 +29,10 @@ connection.onInitialize(params => {
 			documentSymbolProvider: true,
 			documentHighlightProvider: true,
 			signatureHelpProvider: {
-				triggerCharacters: [ '(', '[', '[', '"' ],
+				triggerCharacters: [ '(', '[', '{', '"', '\'' ],
 				retriggerCharacters: [ ',' ],
-			}
+			},
+			documentLinkProvider: {},
 		},
 	};
 	if (settings.hasWorkspaceFolderCapability) {

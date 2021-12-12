@@ -1,13 +1,13 @@
 import { readdir, readdirSync, readFileSync } from 'fs';
-import { join } from 'path';
+import { join, resolve } from 'path';
 import { parse as parseLua, Options as ParseOptions, SyntaxError as ParseError } from 'pico8parse';
-import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent, CompletionParams, CompletionItem as BaseCompletionItem, CompletionContext, DocumentSymbol, Diagnostic, CompletionItemKind, DocumentHighlightParams, DocumentHighlight, SignatureHelpParams, SignatureHelp, CompletionTriggerKind, SignatureHelpContext } from 'vscode-languageserver';
+import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent, CompletionParams, CompletionItem as BaseCompletionItem, CompletionContext, DocumentSymbol, Diagnostic, CompletionItemKind, DocumentHighlightParams, DocumentHighlight, SignatureHelpParams, SignatureHelp, CompletionTriggerKind, SignatureHelpContext, DocumentLinkParams, DocumentLink, DiagnosticSeverity } from 'vscode-languageserver';
 import { Position, Range, TextDocument } from 'vscode-languageserver-textdocument';
 
 import { LUTFunctions, LUTScopes, LUTTables, LUTVariables, SelfExplore } from './document/explore';
 import { isLuaFunction, isLuaTable, LuaDoc, LuaFunction, LuaTable, LuaType, parse as parseType, represent } from './document/typing';
 import { SettingsManager } from './settings';
-import { findWordRange, locToRange, rangeContains, representVariableHover } from './util';
+import { findWordRange, locToRange, rangeContains, representVariableHover, uriToFsPath } from './util';
 
 const parseOptions: Partial<ParseOptions> = {
 	luaVersion: 'PICO-8-0.2.1', // XXX: from option or from p8 file header
@@ -23,6 +23,8 @@ interface CompletionItem extends BaseCompletionItem {
 }
 
 export class Document extends SelfExplore {
+
+	private includes: { directive: string, line: number, target: string, tooltip: string, range: Range }[] = [];
 
 	constructor(public uri: string, private manager: DocumentsManager) {
 		super();
@@ -80,13 +82,69 @@ export class Document extends SelfExplore {
 //#region handlers
 	async handleOnDidChangeContent(textDocument: TextDocument): Promise<Diagnostic[] | null> {
 		const level = (await this.manager.settings.getDocumentSettings(this.uri))?.parse?.dontBother;
+
+		const includesDiagnostics: Diagnostic[] = [];
+		const baseUri = this.uri.slice(0, this.uri.lastIndexOf('/'));
+
+		this.includes = [];
+		let line = -1;
+		const cleanedText = (textDocument.getText() + "\n")
+			.replace(/[ \t]*#include\s+(.*?)\s*\n|\n/gm, (directive, filename: string | undefined) => {
+				line++;
+				if (!filename) return directive;
+
+				const target = baseUri + '/' + filename;
+				const index = directive.lastIndexOf(filename);
+				const range = {
+					start: { line, character: index, },
+					end: { line, character: index + filename.length },
+				};
+
+				// XXX: could not make the onDocumentLinkResolve work, but this should have been over there...
+				// (also moved everything here to have diagnostics)
+				let tooltip: string;
+				const uri = baseUri + '/' + filename;
+				const path = resolve(uriToFsPath(uri));
+				try {
+					const content = readFileSync(path).toString();
+					const hasValidHeader = content.match(/^.*pico-8 cartridge.*/);
+
+					tooltip = hasValidHeader
+						? "PICO-8 include (includes `__lua__` sections)"
+						: "raw include (includes the whole file)";
+
+					if (65536 < content.length)
+						includesDiagnostics.push({
+							message: "file may be too long to be correctly included by PICO-8",
+							range,
+							severity: DiagnosticSeverity.Warning,
+						});
+				} catch {
+					tooltip = "could not read file";
+
+					if (filename.match(/".*"/)) tooltip+= " (try removing the \" \")";
+					else if (filename.match(/'.*'/)) tooltip+= " (try removing the ' ')";
+					else if (filename.match(/<.*>/)) tooltip+= " (try removing the < >)";
+					else tooltip+= ` (make sure '${path}' is accessible)`;
+
+					includesDiagnostics.push({
+						message: tooltip,
+						range,
+						severity: DiagnosticSeverity.Error,
+					});
+				}
+
+				this.includes.push({ directive, line, target, tooltip, range });
+				return directive.replace("#i", "--");
+			});
+
 		if ('only coloration' === level) return null;
 
 		try {
 			this.backup();
 			console.log("======= Parsing document =======");
 			this.reset();
-			this.ast = parseLua(textDocument.getText(), parseOptions);
+			this.ast = parseLua(cleanedText, parseOptions);
 			await this.defines();
 			this.explore();
 			console.log("------------- done -------------");
@@ -108,7 +166,7 @@ export class Document extends SelfExplore {
 		}
 
 		if ('no diagnostics' === level) return null;
-		return this.diagnostics;
+		return [...includesDiagnostics, ...this.diagnostics];
 	}
 
 	handleOnHover(range: Range): Hover | null {
@@ -259,6 +317,10 @@ export class Document extends SelfExplore {
 			activeParameter: null,
 		};
 	}
+
+	handleOnDocumentLinks(): DocumentLink[] {
+		return this.includes;
+	}
 //#endregion
 
 //#region backup LUTs for parse failures
@@ -355,6 +417,7 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 		connection.onCompletionResolve(this.handleOnCompletionResolve.bind(this));
 		connection.onDocumentHighlight(this.handleOnDocumentHighlight.bind(this));
 		connection.onSignatureHelp(this.handleOnSignatureHelp.bind(this));
+		connection.onDocumentLinks(this.handleOnDocumentLinks.bind(this));
 	}
 
 //#region handlers (dispatches to the appropriate Document's handler)
@@ -442,6 +505,11 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 		const identifier = textDocument.getText(identifierRange);
 
 		return document?.handleOnSignatureHelp(position, identifier, signatureHelpParams.context);
+	}
+
+	private handleOnDocumentLinks(documentLinkParams: DocumentLinkParams): DocumentLink[] | null | undefined {
+		const document = this.cache.get(documentLinkParams.textDocument.uri);
+		return document?.handleOnDocumentLinks();
 	}
 //#endregion
 

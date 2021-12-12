@@ -70,7 +70,7 @@ export class SelfExplore {
 		if (this.ast) {
 			this.docGather();
 			this.handlers.Chunk(this.ast);
-		} else throw new Error("How did we get here?\n" + `explore, ast: ${this.ast}`);
+		}// else throw new Error("How did we get here?\n" + `explore, ast: ${this.ast}`);
 	}
 
 //#region doc
@@ -182,7 +182,7 @@ export class SelfExplore {
 		if (this.currentSymbol) {
 			this.currentSymbol.detail = detail;
 			this.currentSymbol.tags = tags;
-		} else throw new Error("How did we get here?\n" + `symbolExit, detail: ${detail}, tags: ${tags}`);
+		} else return;// else throw new Error("How did we get here?\n" + `symbolExit, detail: ${detail}, tags: ${tags}`);
 		const parentSymbol = this.currentSymbol.parent;
 		delete this.currentSymbol.parent; // remove the circular references
 		this.currentSymbol = parentSymbol;
@@ -335,8 +335,8 @@ export class SelfExplore {
 
 	private contextPop(expectedType: TTypes) {
 		const got = this.contextStack.shift();
-		if (expectedType !== got?.type)
-			throw Error(`Expecting state to have a ${expectedType}, found ${got?.type}`);
+		//if (expectedType !== got?.type)
+		//	throw Error(`Expecting state to have a ${expectedType}, found ${got?.type}`);
 	}
 //#endregion
 

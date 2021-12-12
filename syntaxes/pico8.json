@@ -162,6 +162,17 @@
 					]
 				},
 				{
+					"match": "^\\s*(#include)\\s+(.*)\\s*$",
+					"captures": {
+						"1": {
+							"name": "keyword.control.lua"
+						},
+						"2": {
+							"name": "string.quoted.other.include.p8"
+						}
+					}
+				},
+				{
 					"match": "\\b(break|do|else|for|if|elseif|return|then|repeat|while|until|end|function|local|in|goto)\\b|::",
 					"name": "keyword.control.lua"
 				},
@@ -174,7 +185,7 @@
 					"name": "variable.language.self.lua"
 				},
 				{
-					"match": "(?<![^.]\\.|:)(\\b(_ENV|_draw|_init|_update|_update60|abs|add|all|assert|atan2|band|bnot|bor|btn|btnp|bxor|camera|cartdata|cd|ceil|chr|circ|circfill|clip|cls|cocreate|color|coresume|cos|costatus|count|cstore|cursor|del|deli|dget|dir|dset|exit|export|extcmd|fget|fillp|flip|flr|folder|foreach|fset|getmetatable|help|holdframe|import|info|install_demos|install_games|keyconfig|line|load|ls|map|mapdraw|max|memcpy|memset|menuitem|mget|mid|min|mkdir|mset|music|ord|oval|ovalfill|pack|pairs|pal|palt|peek|pget|poke|print|printh|pset|rawequal|rawget|rawlen|rawset|reboot|rect|rectfill|reload|resume|rnd|run|save|select|setmetatable|sfx|sget|sgn|shl|shr|shutdown|sin|split|splore|spr|sqrt|srand|sset|sspr|stat|stop|sub|time|tonum|tostr|trace|type|unpack|yield)\\b|\\?)(?=\\s*(?:[({\"']|\\[\\[))",
+					"match": "(?<![^.]\\.|:)(\\b(_ENV|_draw|_init|_update|_update60|abs|add|all|assert|atan2|band|bnot|bor|btn|btnp|bxor|camera|cartdata|cd|ceil|chr|circ|circfill|clip|cls|cocreate|color|coresume|cos|costatus|count|cstore|cursor|del|deli|dget|dir|dset|exit|export|extcmd|fget|fillp|flip|flr|folder|foreach|fset|getmetatable|help|holdframe|import|info|install_demos|install_games|keyconfig|line|load|ls|map|mapdraw|max|memcpy|memset|menuitem|mget|mid|min|mkdir|mset|music|ord|oval|ovalfill|pack|pairs|pal|palt|peek|pget|poke|print|printh|pset|rawequal|rawget|rawlen|rawset|reboot|rect|rectfill|reload|resume|rnd|run|save|select|setmetatable|sfx|sget|sgn|shl|shr|shutdown|sin|split|splore|spr|sqrt|srand|sset|sspr|stat|stop|sub|time|tline|tonum|tostr|trace|type|unpack|yield)\\b|\\?)(?=\\s*(?:[({\"']|\\[\\[))",
 					"name": "support.class.lua"
 				},
 				{

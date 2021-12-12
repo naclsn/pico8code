@@ -16,7 +16,7 @@ export function activate(context: ExtensionContext) {
 	const clientOptions: LanguageClientOptions = {
 		documentSelector: [{ scheme: 'file', language: 'pico8' }],
 		//synchronize: {
-		//	// Notify the server about file changes to '.pico8rc files contained in the workspace
+		//	// Notify the server about file changes to '.pico8rc' files contained in the workspace
 		//	fileEvents: workspace.createFileSystemWatcher('**/.pico8rc'),
 		//},
 		markdown: { isTrusted: true },

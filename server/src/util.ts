@@ -338,3 +338,19 @@ export function escapeLuaTableStringKey(key: string) {
 		return "";
 	});
 }
+
+/**
+ * adapted from the `vscode-uri` module; usage: `resolve(uriToFsPath(uri))`
+ * 
+ * @thanks https://github.com/microsoft/vscode-uri
+ * 
+ * @used `documents.ts > Document{} > handleOnDocumentLinksResolve()`
+ */
+export function uriToFsPath(uri: string) {
+	let path = uri.slice(7);
+	if (path.slice(2, 5).toUpperCase() === "%3A") path = path.replace(/%3A/i, ':');
+
+	return path.match(/^\/[A-Z]:/i)
+		? path.charAt(1).toUpperCase() + path.slice(2)
+		: path;
+}
