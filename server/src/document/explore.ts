@@ -105,8 +105,8 @@ export class SelfExplore {
 	 * it is simpler to have a requirement that doc comment be attached to the
 	 * associated object with no line in between and not on the same line
 	 */
-	private docGather() { // XXX: the @types/pico8parse is not up-to-date
-		(this.ast.comments as ast.Comment[] | undefined)?.forEach(it => {
+	private docGather() {
+		this.ast.comments?.forEach(it => {
 			if (it.raw.startsWith("--[[") && it.raw.endsWith("]]")) {
 				const range = locToRange(it.loc);
 				this.docLineMap[range.end.line] = {
@@ -685,7 +685,7 @@ export class SelfExplore {
 							if (it) {
 								this.handlers[it.type](it as any);
 								const augmented = it as aug.Expression;
-								if (augmented.augType && ('number' !== augmented.augType || 'any' !== augmented.augType as any))
+								if (augmented.augType && 'number' !== augmented.augType && 'any' !== augmented.augType)
 									this.warning(`expected a number, got ${represent(augmented.augType)}`, locToRange(it.loc));
 							}
 						});
@@ -699,7 +699,7 @@ export class SelfExplore {
 				this.contextPush(node);
 					const previousScope = this.scopeFork(locToRange(node.loc), "for line " + node.loc?.start.line);
 						node.variables.map(it => this.handlers.Identifier(it));
-						node.iterators.map(it => this.handlers[it.type](it as any)); // XXX
+						node.iterators.map(it => this.handlers[it.type](it as any));
 
 						node.body.forEach(it => this.handlers[it.type](it as any));
 					this.scopeRestore(previousScope);
@@ -843,7 +843,7 @@ export class SelfExplore {
 				this.handlers[node.argument.type](node.argument as any);
 
 				const augmented = node.argument as aug.Expression;
-				if (augmented.augType && 'not' !== node.operator && 'number' !== augmented.augType && 'any' !== augmented.augType as any)
+				if (augmented.augType && 'not' !== node.operator && 'number' !== augmented.augType && 'any' !== augmented.augType)
 					this.warning(`expected a number, got ${represent(augmented.augType)}`, locToRange(augmented.loc));
 
 				(node as aug.UnaryExpression).augType = 'not' === node.operator
@@ -860,14 +860,14 @@ export class SelfExplore {
 				if (isComparison && "==" === node.operator || "!=" === node.operator || "~=" === node.operator) {
 					const leftAugmented = node.left as aug.Expression;
 					const rightAugmented = node.right as aug.Expression;
-					if (leftAugmented.augType && rightAugmented.augType && 'any' !== leftAugmented.augType as any && 'any' !== rightAugmented.augType as any && !equivalent(leftAugmented.augType, rightAugmented.augType))
+					if (leftAugmented.augType && rightAugmented.augType && 'any' !== leftAugmented.augType && 'any' !== rightAugmented.augType && !equivalent(leftAugmented.augType, rightAugmented.augType))
 						this.warning(`comparing different types ${represent(leftAugmented.augType)} and ${represent(rightAugmented.augType)}`, locToRange(node.loc));
 				} else if (isComparison || ".." !== node.operator) {
 					const leftAugmented = node.left as aug.Expression;
-					if (leftAugmented.augType && 'number' !== leftAugmented.augType && 'any' !== leftAugmented.augType as any)
+					if (leftAugmented.augType && 'number' !== leftAugmented.augType && 'any' !== leftAugmented.augType)
 						this.warning(`expected a number, got ${represent(leftAugmented.augType)}`, locToRange(leftAugmented.loc));
 					const rightAugmented = node.right as aug.Expression;
-					if (rightAugmented.augType && 'number' !== rightAugmented.augType && 'any' !== rightAugmented.augType as any)
+					if (rightAugmented.augType && 'number' !== rightAugmented.augType && 'any' !== rightAugmented.augType)
 						this.warning(`expected a number, got ${represent(rightAugmented.augType)}`, locToRange(rightAugmented.loc));
 				}
 
@@ -910,7 +910,7 @@ export class SelfExplore {
 				const tbType = (node.base as aug.Expression).augType;
 				let type: LuaType = 'nil'; // XXX: en gros 'unknown'
 
-				if (tbType && !isLuaTable(tbType) && 'any' !== tbType as any)
+				if (tbType && !isLuaTable(tbType) && 'any' !== tbType)
 					this.warning(`expected a table, got ${represent(tbType)}`, locToRange(node.base.loc));
 
 				const augmented = node as aug.MemberExpression;
@@ -940,7 +940,7 @@ export class SelfExplore {
 				const tbType = (node.base as aug.Expression).augType;
 				const keyType = (node.index as aug.Expression).augType;
 
-				if (tbType && !isLuaTable(tbType) && 'any' !== tbType as any)
+				if (tbType && !isLuaTable(tbType) && 'any' !== tbType)
 					this.warning(`expected a table, got ${represent(tbType)}`, locToRange(node.base.loc));
 				if (keyType && ('string' !== typeof keyType || 'nil' === keyType))
 					this.warning(`expected a string, number or boolean, got ${represent(keyType)}`, locToRange(node.index.loc));
@@ -978,7 +978,7 @@ export class SelfExplore {
 
 						const augmented = it as aug.Expression;
 						const expected = yesFnType && yesFnType.parameters[k]?.type || 'nil';
-						if (augmented.augType && yesFnType && !('any' === augmented.augType as any || 'any' === expected as any) && !equivalent(expected, augmented.augType))
+						if (augmented.augType && yesFnType && !('any' === augmented.augType || 'any' === expected) && !equivalent(expected, augmented.augType))
 							this.warning(`expected ${represent(expected)}${'nil' === expected ? " (or nothing)" : ""}, got ${represent(augmented.augType)}`, locToRange(it.loc));
 					});
 				this.contextPop('CallExpression');
@@ -991,7 +991,7 @@ export class SelfExplore {
 					const fnType = (node.base as aug.Expression).augType;
 					const yesFnType = isLuaFunction(fnType) ? fnType : undefined;
 
-					if (fnType && !isLuaFunction(fnType) && 'any' !== fnType as any)
+					if (fnType && !isLuaFunction(fnType) && 'any' !== fnType)
 						this.warning(`expected a function, got ${represent(fnType)}`, locToRange(node.base.loc));
 
 					(node as aug.TableCallExpression).augType = isLuaFunction(fnType)
@@ -1002,7 +1002,7 @@ export class SelfExplore {
 
 					const augmented = node.argument as aug.Expression;
 					const expected = yesFnType && yesFnType.parameters[0]?.type || 'nil';
-					if (augmented.augType && yesFnType && !('any' === augmented.augType as any || 'any' === expected as any) && !equivalent(expected, augmented.augType))
+					if (augmented.augType && yesFnType && !('any' === augmented.augType || 'any' === expected) && !equivalent(expected, augmented.augType))
 						this.warning(`expected ${represent(expected)}${'nil' === expected ? " (or nothing)" : ""}, got ${represent(augmented.augType)}`, locToRange(node.argument.loc));
 				this.contextPop('TableCallExpression');
 			},
@@ -1014,7 +1014,7 @@ export class SelfExplore {
 					const fnType = (node.base as aug.Expression).augType;
 					const yesFnType = isLuaFunction(fnType) ? fnType : undefined;
 
-					if (fnType && !isLuaFunction(fnType) && 'any' !== fnType as any)
+					if (fnType && !isLuaFunction(fnType) && 'any' !== fnType)
 						this.warning(`expected a function, got ${represent(fnType)}`, locToRange(node.base.loc));
 
 					(node as aug.StringCallExpression).augType = isLuaFunction(fnType)
@@ -1025,7 +1025,7 @@ export class SelfExplore {
 
 					const augmented = node.argument as aug.Expression;
 					const expected = yesFnType && yesFnType.parameters[0]?.type || 'nil';
-					if (augmented.augType && yesFnType && !('any' === augmented.augType as any || 'any' === expected as any) && !equivalent(expected, augmented.augType))
+					if (augmented.augType && yesFnType && !('any' === augmented.augType || 'any' === expected) && !equivalent(expected, augmented.augType))
 						this.warning(`expected ${represent(expected)}${'nil' === expected ? " (or nothing)" : ""}, got ${represent(augmented.augType)}`, locToRange(node.argument.loc));
 				this.contextPop('StringCallExpression');
 			},

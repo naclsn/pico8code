@@ -6,6 +6,7 @@ export type LuaNil = 'nil'
 export type LuaNumber = 'number'
 export type LuaBoolean = 'boolean'
 export type LuaString = 'string'
+export type LuaAny = 'any'
 
 export type LuaTypedKey = { type: LuaNumber | LuaBoolean | LuaString }
 export type LuaKey
@@ -54,6 +55,7 @@ export type LuaType
 	//| { and: [LuaType, LuaType] }
 	//| { not: LuaType }
 	//| LuaTypeAlias
+	| LuaAny
 
 export type LuaVariable = {
 	// every type that were assigned to it, last in first
@@ -383,7 +385,7 @@ export function simplify(type: LuaType, depth?: number, typeFrom?: LuaType, type
 
 	if (Object.prototype.hasOwnProperty.call(type, 'or')) {
 		const flat = flattenBinaryTree<'or', LuaType>(type, 'or')!
-			.map(it => simplify(it, depth+1, type, type)); // XXX
+			.map(it => simplify(it, depth+1, type, type));
 		const r: LuaType[] = [];
 
 		for (let k = 0; k < flat.length; k++) {

@@ -1,0 +1,104 @@
+{
+	"PICO-8 header (minimal)": {
+		"prefix": "pico",
+		"body": [
+			"pico-8 cartridge",
+			"",
+			"__lua__",
+			"$0"
+		],
+		"description": "Minimal header recognized by PICO-8"
+	},
+	"PICO-8 header (traditional)": {
+		"prefix": "pico",
+		"body": [
+			"pico-8 cartridge // http://www.pico-8.com",
+			"version ${1:version}",
+			"__lua__",
+			"$0"
+		],
+		"description": "Traditional header (no version specified)"
+	},
+	"Region Start": {
+		"prefix": "#region",
+		"body": [
+			"--#region "
+		],
+		"description": "Folding Region Start"
+	},
+	"Region End": {
+		"prefix": "#endregion",
+		"body": [
+			"--#endregion"
+		],
+		"description": "Folding Region End"
+	},
+	"For Numeric Statement": {
+		"prefix": "for",
+		"body": [
+			"for ${1:i}=${2:from},${3:to}${4:,step} do",
+			"\t$0",
+			"end"
+		]
+	},
+	"For Generic Statement": {
+		"prefix": "forin",
+		"body": [
+			"for ${1:iterator} in ${2:something} do",
+			"\t$0",
+			"end"
+		]
+	},
+	"Repeat Statement": {
+		"prefix": "repeat",
+		"body": [
+			"repeat",
+			"\t$0",
+			"until ${1:condition}"
+		]
+	},
+	"While Statement": {
+		"prefix": "while",
+		"body": [
+			"while ${1:condition} do",
+			"\t$0",
+			"end"
+		]
+	},
+	"If Statement": {
+		"prefix": "if",
+		"body": [
+			"if ${1:condition} then",
+			"\t$0",
+			"end"
+		]
+	},
+	"If-Else Statement": {
+		"prefix": "ifelse",
+		"body": [
+			"if ${1:condition} then",
+			"\t$0",
+			"else",
+			"\t",
+			"end"
+		]
+	},
+	"Single Line While Statement": {
+		"prefix": "while1",
+		"body": [
+			"while (${1:condition}) $0"
+		]
+	},
+	"Single Line If Statement": {
+		"prefix": "if1",
+		"body": [
+			"if (${1:condition}) $0"
+		]
+	},
+	"Single Line If-Else Statement": {
+		"prefix": "ifelse1",
+		"body": [
+			"if (${1:condition}) then $0 else"
+		]
+	}
+}

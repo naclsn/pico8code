@@ -191,5 +191,5 @@ Relies on the [pico8parse](https://github.com/PictElm/pico8parse) and the [vscod
 ---
 
 > * `TODO` count: 12
-> * `XXX` count: 22
-> * `as any` count: 65
+> * `XXX` count: 19
+> * `as any` count: 45

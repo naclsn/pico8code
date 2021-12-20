@@ -42,7 +42,7 @@ export class Document extends SelfExplore {
 							const type = parseType(it.substring(co + 1));
 							return [{ name, type, doc }];
 						} catch {
-							return name ? [{ name, type: 'any' as any, doc }] : [];
+							return name ? [{ name, type: 'any' as LuaType, doc }] : [];
 						}
 					}
 					return [];
@@ -60,8 +60,8 @@ export class Document extends SelfExplore {
 								.parse(readFileSync(join(base, dir, it)).toString())
 							)
 						);
-					api.push({ name: "?", type: 'any' as any, doc: "" });
-					const defs:{ name: string, type: LuaType, doc: string }[] = api.concat(additional);
+					api.push({ name: "?", type: 'any', doc: "" });
+					const defs: { name: string, type: LuaType, doc: string }[] = api.concat(additional);
 					defs.forEach(it => {
 						this.globalScope.variables[it.name] = {
 							ranges: [locToRange(undefined)],
@@ -152,9 +152,8 @@ export class Document extends SelfExplore {
 			this.restore();
 			console.log("Parsing failed, restoring backup");
 			if (err instanceof ParseError) {
-				// XXX: the @types/pico8parse is not up-to-date
-				const line = (err as any).line-1;
-				const character = (err as any).column;
+				const line = err.line-1;
+				const character = err.column;
 				this.diagnostics.push({
 					message: `${err.name}: ${err.message}`,
 					range: {
@@ -163,6 +162,7 @@ export class Document extends SelfExplore {
 					},
 				});
 			} else throw err;
+			console.log("------------- gone -------------");
 		}
 
 		if ('no diagnostics' === level) return null;
@@ -196,7 +196,7 @@ export class Document extends SelfExplore {
 				const variable = scope.scope.variables[identifier];
 				if (!variable) return null;
 
-				const k = 0;
+				let k = 0;
 				let f = false;
 				while (k < variable.ranges.length) {
 					if (!f) {
@@ -209,6 +209,7 @@ export class Document extends SelfExplore {
 							break;
 						}
 					}
+					k++;
 				}
 				if (!found) return null;
 			} else {
@@ -410,14 +411,23 @@ export class DocumentsManager extends TextDocuments<TextDocument> {
 		super.listen(connection);
 		this.connection = connection;
 
-		this.onDidChangeContent(this.handleOnDidChangeContent.bind(this));
-		connection.onHover(this.handleOnHover.bind(this));
-		connection.onDocumentSymbol(this.handleOnDocumentSymbol.bind(this));
-		connection.onCompletion(this.handleOnCompletion.bind(this));
-		connection.onCompletionResolve(this.handleOnCompletionResolve.bind(this));
-		connection.onDocumentHighlight(this.handleOnDocumentHighlight.bind(this));
-		connection.onSignatureHelp(this.handleOnSignatureHelp.bind(this));
-		connection.onDocumentLinks(this.handleOnDocumentLinks.bind(this));
+		const wrap = <T extends (...args: any[]) => any>(handler: T) => {
+			const wrapped = handler.bind(this);
+			/*return function(...args: any[]) {
+				console.log("handler called: '" + handler.name + "'");
+				return wrapped(...args);
+			};*/
+			return wrapped;
+		};
+
+		this.onDidChangeContent(wrap(this.handleOnDidChangeContent));
+		connection.onHover(wrap(this.handleOnHover));
+		connection.onDocumentSymbol(wrap(this.handleOnDocumentSymbol));
+		connection.onCompletion(wrap(this.handleOnCompletion));
+		connection.onCompletionResolve(wrap(this.handleOnCompletionResolve));
+		connection.onDocumentHighlight(wrap(this.handleOnDocumentHighlight));
+		connection.onSignatureHelp(wrap(this.handleOnSignatureHelp));
+		connection.onDocumentLinks(wrap(this.handleOnDocumentLinks));
 	}
 
 //#region handlers (dispatches to the appropriate Document's handler)
