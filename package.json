@@ -29,6 +29,11 @@
 		"languages": [
 			{
 				"id": "pico8",
+				"aliases": [
+					"pico-8",
+					"PICO-8"
+				],
+				"firstLine": "^.*pico-8 cartridge.*",
 				"extensions": [
 					".p8"
 				],
