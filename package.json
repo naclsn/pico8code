@@ -37,7 +37,11 @@
 				"extensions": [
 					".p8"
 				],
-				"configuration": "./syntaxes/language-configuration.json"
+				"configuration": "./syntaxes/language-configuration.json",
+				"icon": {
+					"light": "./client/img/icon/p8fileformat-light.png",
+					"dark": "./client/img/icon/p8fileformat-dark.png"
+				}
 			}
 		],
 		"grammars": [
