@@ -28,7 +28,7 @@ export class Document extends SelfExplore {
 
 	constructor(public uri: string, private manager: DocumentsManager) {
 		super();
-		this.parseOptions = Object.create(baseParseOptions);
+		this.parseOptions = { ...baseParseOptions };
 	}
 
 	defines() {
