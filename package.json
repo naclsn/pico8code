@@ -72,9 +72,12 @@
 					"default": "all"
 				},
 				"pico8code.parse.defaultApiVersion": {
-					"description": "Version of the PICO-8 API to use.",
+					"description": "Version of the PICO-8 API to use when not found in the file header.",
 					"enum": [
-						"0.2.1"
+						"0.2.1",
+						"0.2.2",
+						"0.2.3",
+						"0.2.4"
 					],
 					"default": "0.2.1"
 				},

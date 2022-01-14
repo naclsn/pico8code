@@ -1,16 +1,15 @@
 import { readdir, readdirSync, readFileSync } from 'fs';
 import { join, resolve } from 'path';
-import { parse as parseLua, Options as ParseOptions, SyntaxError as ParseError } from 'pico8parse';
+import { parse as parseLua, Options as ParseOptions, SyntaxError as ParseError, LuaVersion } from 'pico8parse';
 import { Connection, DocumentSymbolParams, Hover, HoverParams, TextDocuments, TextDocumentChangeEvent, CompletionParams, CompletionItem as BaseCompletionItem, CompletionContext, DocumentSymbol, Diagnostic, CompletionItemKind, DocumentHighlightParams, DocumentHighlight, SignatureHelpParams, SignatureHelp, CompletionTriggerKind, SignatureHelpContext, DocumentLinkParams, DocumentLink, DiagnosticSeverity } from 'vscode-languageserver';
 import { Position, Range, TextDocument } from 'vscode-languageserver-textdocument';
 
 import { LUTFunctions, LUTScopes, LUTTables, LUTVariables, SelfExplore } from './document/explore';
 import { isLuaFunction, isLuaTable, LuaDoc, LuaFunction, LuaTable, LuaType, parse as parseType, represent } from './document/typing';
 import { SettingsManager } from './settings';
-import { findWordRange, locToRange, rangeContains, representVariableHover, uriToFsPath } from './util';
+import { findWordRange, locToRange, nearestParserVersion, providedVersion, rangeContains, representVariableHover, uriToFsPath } from './util';
 
-const parseOptions: Partial<ParseOptions> = {
-	luaVersion: 'PICO-8-0.2.1', // XXX: from option or from p8 file header
+const baseParseOptions: Partial<ParseOptions> = {
 	locations: true,
 	comments: true,
 };
@@ -25,9 +24,11 @@ interface CompletionItem extends BaseCompletionItem {
 export class Document extends SelfExplore {
 
 	private includes: { directive: string, line: number, target: string, tooltip: string, range: Range }[] = [];
+	private parseOptions: Partial<ParseOptions>;
 
 	constructor(public uri: string, private manager: DocumentsManager) {
 		super();
+		this.parseOptions = Object.create(baseParseOptions);
 	}
 
 	defines() {
@@ -81,14 +82,15 @@ export class Document extends SelfExplore {
 
 //#region handlers
 	async handleOnDidChangeContent(textDocument: TextDocument): Promise<Diagnostic[] | null> {
-		const level = (await this.manager.settings.getDocumentSettings(this.uri))?.parse?.dontBother;
+		const docSettings = await this.manager.settings.getDocumentSettings(this.uri);
+		const level = docSettings?.parse.dontBother;
 
 		const includesDiagnostics: Diagnostic[] = [];
 		const baseUri = this.uri.slice(0, this.uri.lastIndexOf('/'));
 
 		this.includes = [];
 		let line = -1;
-		const cleanedText = (textDocument.getText() + "\n")
+		const cleanedText = (textDocument.getText() + "\n") // XXX: includes outside __lua__ section will...
 			.replace(/[ \t]*#include\s+(.*?)\s*\n|\n/gm, (directive, filename: string | undefined) => {
 				line++;
 				if (!filename) return directive;
@@ -140,11 +142,23 @@ export class Document extends SelfExplore {
 
 		if ('only coloration' === level) return null;
 
+		const headerProvidedVersion = providedVersion(cleanedText.slice(0, cleanedText.indexOf("__lua__")));
+		this.parseOptions.luaVersion = ("PICO-8-" + (!headerProvidedVersion
+			? docSettings?.parse.defaultApiVersion
+			: nearestParserVersion(headerProvidedVersion)
+		)) as LuaVersion;
+
+		includesDiagnostics.push({
+			message: `assuming version '${this.parseOptions.luaVersion}' ${!headerProvidedVersion ? "(none found in header)" : "from header"}`,
+			range: {start:{line:0,character:0},end:{line:0,character:16}},
+			severity: DiagnosticSeverity.Hint,
+		});
+
 		try {
 			this.backup();
 			console.log("======= Parsing document =======");
 			this.reset();
-			this.ast = parseLua(cleanedText, parseOptions);
+			this.ast = parseLua(cleanedText, this.parseOptions);
 			await this.defines();
 			this.explore();
 			console.log("------------- done -------------");

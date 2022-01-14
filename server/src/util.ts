@@ -354,3 +354,43 @@ export function uriToFsPath(uri: string) {
 		? path.charAt(1).toUpperCase() + path.slice(2)
 		: path;
 }
+
+/**
+ * tries to find a file version and returns the corresponding PICO-8 (not-quite-)semver.
+ * 
+ * @param header should at least contain the 2-lines header
+ * 
+ * @thanks https://gist.github.com/PictElm/9e1930781b8c541f7199059ccc08cf89
+ * 
+ * @used `documents.ts > Document{} > handleOnDidChangeContent()`
+ */
+export function providedVersion(header: string) {
+	const headerProvidedVersion = parseInt(/version (\d+)/gi.exec(header)?.[1] || "");
+	if (isNaN(headerProvidedVersion)) return;
+
+	const VERSION_MAP: Record<number, string> = JSON.parse('{"3":"0.0.1","4":"0.1.1","5":"0.1.5","7":"0.1.6","8":"0.1.10c","11":"0.1.11b","12":"0.1.11c","14":"0.1.11d","15":"0.1.11f","16":"0.1.11g","17":"0.1.12","18":"0.1.12c","19":"0.2.0","20":"0.2.0b","21":"0.2.0c","22":"0.2.0d","23":"0.2.0e","24":"0.2.0f","25":"0.2.0g","26":"0.2.0h","27":"0.2.0i","28":"0.2.1","29":"0.2.1b","30":"0.2.2","31":"0.2.2b","32":"0.2.2c","33":"0.2.3","34":"0.2.4"}');
+
+	return VERSION_MAP[headerProvidedVersion];
+}
+
+/**
+ * find the nearest PICO-8 version the parser can understand to the passed (not-quite-)semver.
+ * 
+ * @param pseudoSemver this whole thing was getting hellish to maintain anyway...
+ * 
+ * @used `documents.ts > Document{} > handleOnDidChangeContent()`
+ */
+ export function nearestParserVersion(pseudoSemver: string): string {
+	const [maj_s, min_s, meh_s] = pseudoSemver.split('.');
+	const maj = parseInt(maj_s);
+	const min = parseInt(min_s);
+	const meh = parseInt(meh_s);
+
+	const PARSER_LOW = [0, 2, 1], PARSER_HIG = [0, 2, 4];
+
+	return maj < PARSER_LOW[0] || min < PARSER_LOW[1] || meh < PARSER_LOW[2]
+		? PARSER_LOW.join('.')
+		: PARSER_HIG[0] < maj || PARSER_HIG[1] < min || PARSER_HIG[2] < meh
+			? PARSER_HIG.join('.')
+			: [maj, min, meh].join('.');
+}
