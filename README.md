@@ -1,10 +1,12 @@
+This extension is no longer maintained; if you are looking proper language support anyway, remember that PICO-8's Lua is still [Lua](https://marketplace.visualstudio.com/search?term=lua&target=VSCode&category=Programming%20Languages&sortBy=Relevance).
+
 # An Other PICO-8 VSCode Extension
 
 A first attempt at language support for PICO-8's Lua.
 
 Aims at being helpful.
 
-Barely functional, this likely won't be maintained and _potentially_ redesigned someday.
+Barely functional, obnoxiously broken.
 
 To only have the coloration, see the setting `pico8.parse.dontBother` (disabling diagnostics, completions, typing and such).
 
@@ -21,7 +23,6 @@ This extension aims at providing the following language features:
  - [typing](#typing)
 
 The Language Server activates for PICO-8 sources (.p8, text).
-
 
 ## Somewhat Important Points
 
@@ -192,4 +193,4 @@ Relies on the [pico8parse](https://github.com/PictElm/pico8parse) and the [vscod
 
 > * `TODO` count: 12
 > * `XXX` count: 19
-> * `as any` count: 45
+> * `as any` count: 46

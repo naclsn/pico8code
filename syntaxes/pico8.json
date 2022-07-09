@@ -3,7 +3,7 @@
 	"fileTypes": [
 		"p8"
 	],
-	"firstLineMatch": "^pico-8 cartridge.+",
+	"firstLineMatch": "^.*pico-8 cartridge.*",
 	"name": "Pico8",
 	"patterns": [
 		{

@@ -1,0 +1,13 @@
+- Web Extension: https://code.visualstudio.com/api/extension-guides/web-extensions#web-extension-anatomy
+
+- stop diagnostics when document closed
+- fix type hint parsing
+- add proper types for the api's
+- not sure typing works with `self` and `:` call syntax
+- metatable, maybe
+- redo
+
+- (pico8parse) check encoding w/ PICO-8 crappy characters
+- (pico8parse) types for argument of StringCallExpression and TableCallExpression
+
+- (package.json) update pico8parse

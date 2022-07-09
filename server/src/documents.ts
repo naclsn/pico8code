@@ -12,7 +12,8 @@ import { findWordRange, locToRange, nearestParserVersion, providedVersion, range
 const baseParseOptions: Partial<ParseOptions> = {
 	locations: true,
 	comments: true,
-};
+	ignoreP8scii: true,
+} as any;
 
 interface CompletionItem extends BaseCompletionItem {
 	data?: {
@@ -109,7 +110,10 @@ export class Document extends SelfExplore {
 				const path = resolve(uriToFsPath(uri));
 				try {
 					const content = readFileSync(path).toString();
-					const hasValidHeader = content.match(/^.*pico-8 cartridge.*/);
+					const p = content.indexOf('p');
+					const n = content.indexOf('\n');
+					const h = "pico-8 cartridge";
+					const hasValidHeader = p < n && content.slice(p, p + h.length) !== h;
 
 					tooltip = hasValidHeader
 						? "PICO-8 include (includes `__lua__` sections)"
@@ -153,6 +157,13 @@ export class Document extends SelfExplore {
 			range: {start:{line:0,character:0},end:{line:0,character:16}},
 			severity: DiagnosticSeverity.Hint,
 		});
+
+		{
+			const p = cleanedText.indexOf('p');
+			const n = cleanedText.indexOf('\n');
+			const h = "pico-8 cartridge";
+			this.parseOptions.ignoreStrictP8FileFormat = n < p || cleanedText.slice(p, p + h.length) !== h;
+		}
 
 		try {
 			this.backup();

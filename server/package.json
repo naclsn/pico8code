@@ -13,11 +13,11 @@
 		"node": "*"
 	},
 	"dependencies": {
-		"pico8parse": "^0.4.0",
+		"pico8parse": "latest",
 		"vscode-languageserver": "^7.0.0",
 		"vscode-languageserver-textdocument": "^1.0.1"
 	},
 	"devDependencies": {
-		"@types/pico8parse": "^0.4.0"
+		"@types/pico8parse": "latest"
 	}
 }
