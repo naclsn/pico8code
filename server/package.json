@@ -3,7 +3,7 @@
 	"description": "Server for the pico8code",
 	"author": "me",
 	"license": "MIT",
-	"version": "0.0.3",
+	"version": "0.0.4",
 	"repository": {
 		"type": "git",
 		"url": "https://github.com/PictElm/pico8code"
