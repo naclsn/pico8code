@@ -13,6 +13,7 @@ const baseParseOptions: Partial<ParseOptions> = {
 	locations: true,
 	comments: true,
 	ignoreP8scii: true,
+	encodingMode: 'none',
 } as any;
 
 interface CompletionItem extends BaseCompletionItem {
@@ -92,7 +93,7 @@ export class Document extends SelfExplore {
 		this.includes = [];
 		let line = -1;
 		const cleanedText = (textDocument.getText() + "\n") // XXX: includes outside __lua__ section will...
-			.replace(/[ \t]*#include\s+(.*?)\s*\n|\n/gm, (directive, filename: string | undefined) => {
+			.replace(/^[ \t]*#include\s+(.*?)\s*\n|\n/gm, (directive, filename: string | undefined) => {
 				line++;
 				if (!filename) return directive;
 
@@ -106,8 +107,7 @@ export class Document extends SelfExplore {
 				// XXX: could not make the onDocumentLinkResolve work, but this should have been over there...
 				// (also moved everything here to have diagnostics)
 				let tooltip: string;
-				const uri = baseUri + '/' + filename;
-				const path = resolve(uriToFsPath(uri));
+				const path = resolve(uriToFsPath(target));
 				try {
 					const content = readFileSync(path).toString();
 					const p = content.indexOf('p');
@@ -163,6 +163,12 @@ export class Document extends SelfExplore {
 			const n = cleanedText.indexOf('\n');
 			const h = "pico-8 cartridge";
 			this.parseOptions.ignoreStrictP8FileFormat = n < p || cleanedText.slice(p, p + h.length) !== h;
+		}
+
+		{
+			const i = docSettings?.parse.ignoreP8scii;
+			if ('boolean' === typeof i)
+				(this.parseOptions as any).ignoreP8scii = i;
 		}
 
 		try {

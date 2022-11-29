@@ -3,8 +3,9 @@ import { Connection, DidChangeConfigurationParams } from 'vscode-languageserver'
 interface Settings {
 	parse: {
 		dontBother: "all" | "no diagnostics" | "only coloration",
-		defaultApiVersion: '0.2.1',// | '0.2.2',
+		defaultApiVersion: string,
 		preDefinedGlobals: string[],
+		ignoreP8scii: boolean,
 	};
 	trace: {
 		server: 'off' | 'messages' | 'verbose',
@@ -14,8 +15,9 @@ interface Settings {
 const defaultSettings: Settings = {
 	parse: {
 		dontBother: "all",
-		defaultApiVersion: '0.2.1',
+		defaultApiVersion: '0.2.4',
 		preDefinedGlobals: [],
+		ignoreP8scii: true,
 	},
 	trace: {
 		server: 'verbose',

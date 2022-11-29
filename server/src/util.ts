@@ -347,8 +347,7 @@ export function escapeLuaTableStringKey(key: string) {
  * @used `documents.ts > Document{} > handleOnDocumentLinksResolve()`
  */
 export function uriToFsPath(uri: string) {
-	let path = uri.slice(7);
-	if (path.slice(2, 5).toUpperCase() === "%3A") path = path.replace(/%3A/i, ':');
+	const path = decodeURIComponent(uri.slice(7));
 
 	return path.match(/^\/[A-Z]:/i)
 		? path.charAt(1).toUpperCase() + path.slice(2)
@@ -368,7 +367,7 @@ export function providedVersion(header: string) {
 	const headerProvidedVersion = parseInt(/version (\d+)/gi.exec(header)?.[1] || "");
 	if (isNaN(headerProvidedVersion)) return;
 
-	const VERSION_MAP: Record<number, string> = JSON.parse('{"3":"0.0.1","4":"0.1.1","5":"0.1.5","7":"0.1.6","8":"0.1.10c","11":"0.1.11b","12":"0.1.11c","14":"0.1.11d","15":"0.1.11f","16":"0.1.11g","17":"0.1.12","18":"0.1.12c","19":"0.2.0","20":"0.2.0b","21":"0.2.0c","22":"0.2.0d","23":"0.2.0e","24":"0.2.0f","25":"0.2.0g","26":"0.2.0h","27":"0.2.0i","28":"0.2.1","29":"0.2.1b","30":"0.2.2","31":"0.2.2b","32":"0.2.2c","33":"0.2.3","34":"0.2.4"}');
+	const VERSION_MAP: Record<number, string> = JSON.parse('{"3":"0.0.1","4":"0.1.1","5":"0.1.5","7":"0.1.6","8":"0.1.10c","11":"0.1.11b","12":"0.1.11c","14":"0.1.11d","15":"0.1.11f","16":"0.1.11g","17":"0.1.12","18":"0.1.12c","19":"0.2.0","20":"0.2.0b","21":"0.2.0c","22":"0.2.0d","23":"0.2.0e","24":"0.2.0f","25":"0.2.0g","26":"0.2.0h","27":"0.2.0i","28":"0.2.1","29":"0.2.1b","30":"0.2.2","31":"0.2.2b","32":"0.2.2c","33":"0.2.3","34":"0.2.4","35":"0.2.4","36":"0.2.4c","37":"0.2.5","38":"0.2.5"}');
 
 	return VERSION_MAP[headerProvidedVersion];
 }

@@ -81,14 +81,21 @@
 						"0.2.1",
 						"0.2.2",
 						"0.2.3",
-						"0.2.4"
+						"0.2.4",
+						"0.2.4c",
+						"0.2.5"
 					],
-					"default": "0.2.1"
+					"default": "0.2.4"
 				},
 				"pico8code.parse.preDefinedGlobals": {
 					"markdownDescription": "Define an additional list of global variables. Each entry should be a valid Lua identifier followed by a type annotation.\nExamples:\n* `add: (number, number) -> number`\n* `window: { width: number, height: number }`\n* `prop: () -> string | number`\n* `size: () -> [number, number]`",
 					"type": "array",
 					"default": []
+				},
+				"pico8code.parse.ignoreP8scii": {
+					"markdownDescription": "When checked, it will not process P8SCII escapes sequences.",
+					"type": "boolean",
+					"default": "true"
 				}
 			}
 		},
